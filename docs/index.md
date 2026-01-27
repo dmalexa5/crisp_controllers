@@ -35,31 +35,31 @@ Check the [controllers (CRISP controllers) :simple-github:](https://github.com/u
 <div class="carousel-container">
   <div class="carousel">
     <div class="carousel-slide active">
-      <video src="../media/videos_concatenaded.mp4" playsinline muted loop autoplay  alt="Robot Collection"></video>
+      <video src="media/videos_concatenaded.mp4" playsinline muted loop autoplay  alt="Robot Collection"></video>
       <div class="carousel-caption">End-to-end policies in action performing different contact-rich tasks.</div>
     </div>
     <div class="carousel-slide">
-      <video src="../media/wrist_cam.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
+      <video src="media/wrist_cam.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
       <div class="carousel-caption">Recorded Trajectories in LeRobot format for different tasks using CRISP.</div>
     </div>
     <div class="carousel-slide">
-      <video src="../media/viser_visualization.mp4" playsinline muted loop autoplay  alt="Viser"></video>
+      <video src="media/viser_visualization.mp4" playsinline muted loop autoplay  alt="Viser"></video>
       <div class="carousel-caption">Provided example with 1x video of the tracking capabilities of the controller.</div>
     </div>
     <div class="carousel-slide">
-      <video src="../media/pap_demo.mp4" playsinline muted loop autoplay  alt="Teleoperation PaP"></video>
+      <video src="media/pap_demo.mp4" playsinline muted loop autoplay  alt="Teleoperation PaP"></video>
       <div class="carousel-caption">Leader-follower teleoperation for a pick and place task.</div>
     </div>
     <div class="carousel-slide">
-      <img src="../media/franka.gif" alt="Franka Robot Demo">
+      <img src="media/franka.gif" alt="Franka Robot Demo">
       <div class="carousel-caption">Controllers: Franka Robot - Following a moving target while base joint follows a sine curve</div>
     </div>
     <div class="carousel-slide">
-      <img src="../media/kinova.gif" alt="Kinova Robot Demo">
+      <img src="media/kinova.gif" alt="Kinova Robot Demo">
       <div class="carousel-caption">Controllers: Kinova Robot - Simulated robot with continuous joints and nullspace control</div>
     </div>
     <div class="carousel-slide">
-      <img src="../media/iiwa.gif" alt="IIWA Robot Demo">
+      <img src="media/iiwa.gif" alt="IIWA Robot Demo">
       <div class="carousel-caption">Controllers: IIWA Robot - Impedance control in simulation</div>
     </div>
   </div>
@@ -157,11 +157,11 @@ Check the robots in action:
 
 <div class="video-container">
     <div class="video-item">
-      <video src="../media/crisp_ur5_test.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
+      <video src="media/crisp_ur5_test.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
       <div class="hover-text">UR5 Robot using a CRISP controller to track a circular trajectory while being disturbed.</div>
     </div>
     <div class="video-item">
-      <video src="../media/crisp_fr3_test.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
+      <video src="media/crisp_fr3_test.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
       <div class="hover-text">End-To-End policy stacking Lego bricks with the CRISP  controllers.</div>
     </div>
 </div>
