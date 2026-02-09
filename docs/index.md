@@ -128,10 +128,10 @@ Our controllers have been tested in real hardware on the following robots:
         <div class="robot-name">UR5</div>
     </a>
   </div>
-  <!-- <div class="robot-card greyscale"> -->
-  <!--   <img src="media/dynaarm_visual.png" alt="UR10"> -->
-  <!--   <div class="robot-name">DynaArm</div> -->
-  <!-- </div> -->
+  <div class="robot-card greyscale">
+    <img src="media/dynaarm_visual.png" alt="UR10">
+    <div class="robot-name">DynaArm</div>
+  </div>
 </div>
 
 Grippers tested in real hardware:
@@ -175,6 +175,7 @@ Many thanks community contributions:
 - Lev Kozlov [@lvjonok](https://github.com/lvjonok) for testing and providing interfaces for the Panda/FER.
 - Vincenzo Orlando [@VinsOrl09](https://github.com/lvjonok) for testing and providing interfaces for the UR robots.
 - Linus Schwarz [@Linus-Schwarz](https://github.com/Linus-Schwarz) for testing and providing interfaces for the BOTA force-torque sensors.
+- Niklas Schlueter [@niklasschlueter](https://github.com/niklasschlueter) for testing and providing interfaces for the DynaArm robot.
 
 Check the robots in action:
 
@@ -186,6 +187,13 @@ Check the robots in action:
     <div class="video-item">
       <video src="media/crisp_fr3_test.mp4" playsinline muted loop autoplay  alt="Data visualized"></video>
       <div class="hover-text">End-To-End policy stacking Lego bricks with the CRISP  controllers.</div>
+    </div>
+
+</div>
+<div class="video-container">
+    <div class="video-item">
+      <video src="media/duatic_video.mov" playsinline muted loop autoplay  alt="Data visualized"></video>
+      <div class="hover-text">DynaArm running a soft compliant controller holding its position.</div>
     </div>
 </div>
 
