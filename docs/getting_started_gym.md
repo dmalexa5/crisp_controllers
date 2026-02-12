@@ -11,7 +11,7 @@ The script will not be tracked by git.
 In this script you need to add the following environment variables:
 
 - `ROS_DOMAIN_ID` **(Required)**: which is used to define nodes that should be able to see each other. In our [ROS2 nodes](getting_started_controllers.md) they are set to 100 as default.
-- `CRISP_CONFIG_PATH` **(Optional)**: which should be the path to a config folder similar to [config path of CRISP_PY](https://github.com/utiasDSL/crisp_py/tree/main/config) or [config path of CRISP_GYM](https://github.com/utiasDSL/crisp_gym/tree/main/crisp_gym/config) but with your own custom configurations.
+- `CRISP_CONFIG_PATH` **(Optional)**: which should be the path to a config folder similar to [config path of crisp_py](https://github.com/utiasDSL/crisp_py/tree/main/config) or [config path of crisp_gym](https://github.com/utiasDSL/crisp_gym/tree/main/crisp_gym/config) but with your own custom configurations.
     If this environment variable is unset, the default configurations will be used.
     Check [how to create your own config](getting_started_config.md) guide for more information.
 
@@ -203,4 +203,22 @@ pixi run -e humble-lerobot crisp-deploy-policy  --policy # (1)!
     LeRobot is subject to frequent changes. This command might change in future versions.
 
 Good job, now you can evaluate your model!
+
+### [Extra] Using a different `crisp_py` version
+
+If you have your own for of `crisp_py` or want to use a different version than the one available at [PyPi](https://pypi.org/project/crisp-python/), you can change the `pixi.toml` to point to your version.
+`crisp_py` should be independent of the ROS2 version.
+
+```toml title="pixi.toml" hl_lines="6" 
+...
+
+[pypi-dependencies]
+crisp_gym = { path = ".", editable = true }
+# Uncomment this line to use your own fork of crisp_py (if cloned locally)
+crisp_python = { path = "../crisp_py", editable = true }
+
+...
+```
+
+and then run `pixi install` again to update the dependencies.
 

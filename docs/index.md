@@ -14,13 +14,13 @@ hide:
 
 You want to deploy your learning-based policy to your manipulator, or collect teleoperation data? `CRISP` provides the tools for that.
 
-- `CRISP` provides the `ros2_control` low-level controllers (compliant, real-time, C++, torque-based) and simple python interfaces `CRISP_PY` to interface with them. It is compatible with any manipulator offering an joint-level torque effort interface.
+- `CRISP` provides the `ros2_control` low-level controllers (compliant, real-time, C++, torque-based) and simple python interfaces `crisp_py` to interface with them. It is compatible with any manipulator offering an joint-level torque effort interface.
 
-- `CRISP` provides also a Gymnasium environment `CRISP_GYM` to deploy learning-based `LeRobot` policies and collect data in `LeRobotDataset` format.
+- `CRISP` provides also a Gymnasium environment `crisp_gym` to deploy learning-based `LeRobot` policies and collect data in `LeRobotDataset` format.
 
 _If you use this work, please cite it using the [bibtex](#citing) below._
 
-Check the [controllers (CRISP controllers) :simple-github:](https://github.com/utiasDSL/crisp_controllers), the simple [python interface (CRISP_PY) :simple-github:](https://github.com/utiasDSL/crisp_py), and a [Gymnasium wrapper (CRISP_GYM) :simple-github:](https://github.com/utiasDSL/crisp_gym) for real-world experiments.
+Check the [controllers (CRISP controllers) :simple-github:](https://github.com/utiasDSL/crisp_controllers), the simple [python interface (crisp_py) :simple-github:](https://github.com/utiasDSL/crisp_py), and a [Gymnasium wrapper (crisp_gym) :simple-github:](https://github.com/utiasDSL/crisp_gym) for real-world experiments.
 
 
 !!! info "Aloha gripper for Manipulators"
@@ -76,7 +76,7 @@ Check the [controllers (CRISP controllers) :simple-github:](https://github.com/u
 <!---->
 <!-- | <video src="media/pap_demo.mp4" playsinline muted controls loop autoplay width="800"/> | <video src="media/policy.mp4" playsinline controls="true" loop="true" autoplay="true" width="800"/> | -->
 <!-- |:--:|:--:| -->
-<!-- | Robot teleoperated using a Follower-Leader system in [CRISP_GYM :simple-github:](https://github.com/utiasDSL/crisp_gym) | Diffusion Policy trained and deployed from the same demonstrations |  -->
+<!-- | Robot teleoperated using a Follower-Leader system in [crisp_gym :simple-github:](https://github.com/utiasDSL/crisp_gym) | Diffusion Policy trained and deployed from the same demonstrations |  -->
 <!---->
 <!---->
 <!-- | ![Franka](media/franka.gif) | ![kinova](media/kinova.gif) | ![iiwa](media/iiwa.gif) | -->
@@ -101,7 +101,7 @@ While `ROS2` frameworks like `MoveIt` offer comprehensive motion planning capabi
 We present a set of lightweight, torque-based Cartesian and joint-space controllers implemented in C++ for `ros2_control`, compatible with any robot exposing an effort interface—a common standard among modern manipulators.
 Our controllers incorporate friction compensation, joint limit avoidance, and error clipping, and have been validated on the Franka Robotics FR3 on hardware, and on various platforms in simulation.
 
-We provide tooling to collect data in `LeRobotDataset` format using teleoperation and deploy learning-based policies with minimal effort using `CRISP_PY` and `CRISP_GYM`.
+We provide tooling to collect data in `LeRobotDataset` format using teleoperation and deploy learning-based policies with minimal effort using `crisp_py` and `crisp_gym`.
 
 **Why the name "CRISP"**? "CRISP" reflects our design philosophy behind the package: a concise, to-the-point implementation for easy deployment and integration in other software stacks.
 
@@ -200,8 +200,8 @@ Check the robots in action:
 
 
 ## Features
-- 🐍 **Python interface** to move your ROS2 robot around without having to think about topics, spinning, and more ROS2 concepts but without losing the powerful ROS2 API. Check [CRISP_PY](https://github.com/utiasDSL/crisp_py) for more information and examples.
-- 🔁 **Gymnasium environment** with utilities to deploy learning-based policies and record trajectories in LeRobotFormat. Check [CRISP_GYM](https://github.com/utiasDSL/crisp_gym).
+- 🐍 **Python interface** to move your ROS2 robot around without having to think about topics, spinning, and more ROS2 concepts but without losing the powerful ROS2 API. Check [crisp_py](https://github.com/utiasDSL/crisp_py) for more information and examples.
+- 🔁 **Gymnasium environment** with utilities to deploy learning-based policies and record trajectories in LeRobotFormat. Check [crisp_gym](https://github.com/utiasDSL/crisp_gym).
 - ❓ **Demos** showcasing how to use the controller with FR3 of Franka Emika in single and bimanual setup. Check the [crisp_controller_demos](https://github.com/utiasDSL/crisp_controllers_demos).
 - ⚙️ Dynamically and highly parametrizable: powered by the [`generate_parameter_library`](https://github.com/PickNikRobotics/generate_parameter_library) you can modify stiffness and more during operation.  
 - 🤖 Operational Space Controller as well as Cartesian Impedance Controller for torque-based control.  
