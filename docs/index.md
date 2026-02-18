@@ -176,6 +176,7 @@ Many thanks community contributions:
 - Vincenzo Orlando [@VinsOrl09](https://github.com/lvjonok) for testing and providing interfaces for the UR robots in docker containers.
 - Linus Schwarz [@Linus-Schwarz](https://github.com/Linus-Schwarz) for testing and providing interfaces for the BOTA force-torque sensors.
 - Niklas Schlueter [@niklasschlueter](https://github.com/niklasschlueter) for testing and providing interfaces for the DynaArm robot.
+- Su Lu [@adi-git-slu](https://github.com/adi-git-slu) for major improvements in the controllers, proper clang-formatting and more.
 
 Check the robots in action:
 
