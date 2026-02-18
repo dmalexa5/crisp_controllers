@@ -3,13 +3,14 @@
 /**
  * @file cartesian_controller.hpp
  * @brief Cartesian controller implementation for robot manipulation (supports impedance and OSC)
- * @author Your Organization
  */
 
-#include <Eigen/Dense>
+#include <memory>
+#include <string>
+#include <unordered_set>
 
-#include <Eigen/src/Core/Matrix.h>
-#include <Eigen/src/Geometry/Transform.h>
+#include <Eigen/Dense>  // NOLINT(build/include_order)
+
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
@@ -17,14 +18,18 @@
 #include <pinocchio/multibody/fwd.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "realtime_tools/realtime_buffer.hpp"
-#include <cartesian_impedance_controller_parameters.hpp>
-#include <sensor_msgs/msg/joint_state.hpp>
-#include <string>
-#include <unordered_set>
+#include <crisp_controllers/utils/ros2_version.hpp>
 
-using CallbackReturn =
-    rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+#if ROS2_VERSION_ABOVE_HUMBLE
+#include <crisp_controllers/cartesian_controller_parameters.hpp>
+#else
+#include <cartesian_controller_parameters.hpp>
+#endif
+
+#include <sensor_msgs/msg/joint_state.hpp>
+#include "realtime_tools/realtime_buffer.hpp"
+
+using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
 namespace crisp_controllers {
 
@@ -36,8 +41,7 @@ namespace crisp_controllers {
  * allowing for compliant interaction with the environment while maintaining
  * desired position and orientation targets.
  */
-class CartesianController
-    : public controller_interface::ControllerInterface {
+class CartesianController : public controller_interface::ControllerInterface {
 public:
   /**
    * @brief Get the command interface configuration
@@ -60,7 +64,7 @@ public:
    * @return Success/failure of update
    */
   controller_interface::return_type
-  update(const rclcpp::Time &time, const rclcpp::Duration &period) override;
+  update(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
   /**
    * @brief Initialize the controller
@@ -73,24 +77,21 @@ public:
    * @param previous_state Previous lifecycle state
    * @return Success/failure of configuration
    */
-  CallbackReturn
-  on_configure(const rclcpp_lifecycle::State &previous_state) override;
+  CallbackReturn on_configure(const rclcpp_lifecycle::State & previous_state) override;
 
   /**
    * @brief Activate the controller
    * @param previous_state Previous lifecycle state
    * @return Success/failure of activation
    */
-  CallbackReturn
-  on_activate(const rclcpp_lifecycle::State &previous_state) override;
+  CallbackReturn on_activate(const rclcpp_lifecycle::State & previous_state) override;
 
   /**
    * @brief Deactivate the controller
    * @param previous_state Previous lifecycle state
    * @return Success/failure of deactivation
    */
-  CallbackReturn
-  on_deactivate(const rclcpp_lifecycle::State &previous_state) override;
+  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) override;
 
   /*CartesianImpedanceController();*/
 
@@ -147,14 +148,15 @@ private:
   Eigen::Quaterniond target_orientation_;
   /** @brief Target wrench in task space */
   Eigen::VectorXd target_wrench_;
-  /** @brief Combined target pose as SE3 transformation */
-  pinocchio::SE3 target_pose_;
+  /** @brief Desired target position in Cartesian space after applying filtering */
+  Eigen::Vector3d desired_position_;
+  /** @brief Desired target orientation as quaternion after applying filtering */
+  Eigen::Quaterniond desired_orientation_;
 
   /** @brief Parameter listener for dynamic parameter updates */
-  std::shared_ptr<cartesian_impedance_controller::ParamListener>
-      params_listener_;
+  std::shared_ptr<cartesian_controller::ParamListener> params_listener_;
   /** @brief Current parameter values */
-  cartesian_impedance_controller::Params params_;
+  cartesian_controller::Params params_;
 
   /** @brief Frame ID of the end effector in the robot model */
   int end_effector_frame_id;
@@ -187,6 +189,8 @@ private:
   Eigen::VectorXd q_ref;
   /** @brief Reference joint velocities */
   Eigen::VectorXd dq_ref;
+  /** @brief Target joint positions for posture task */
+  Eigen::VectorXd q_target;
 
   /** @brief Previously computed torque */
   Eigen::VectorXd tau_previous;
@@ -203,7 +207,6 @@ private:
   /** @brief Friction parameters 3 of size nv */
   Eigen::VectorXd fp3;
 
-
   /** @brief Allowed type of joints **/
   const std::unordered_set<std::basic_string<char>> allowed_joint_types = {
     "JointModelRX",
@@ -215,8 +218,8 @@ private:
     "JointModelRUBZ",
   };
   /** @brief Continous joint types that should be considered separetly. **/
-  const std::unordered_set<std::basic_string<char>> continous_joint_types =
-    {"JointModelRUBX", "JointModelRUBY", "JointModelRUBZ"};
+  const std::unordered_set<std::basic_string<char>> continous_joint_types = {
+    "JointModelRUBX", "JointModelRUBY", "JointModelRUBZ"};
 
   /** @brief Maximum allowed delta values for error clipping */
   Eigen::VectorXd max_delta_ = Eigen::VectorXd::Zero(6);
@@ -246,18 +249,23 @@ private:
   /** @brief Final desired torque command */
   Eigen::VectorXd tau_d;
 
+  /** @brief Inverse of the manipulator joint mass projected in Cartesian space (6x6) */
+  Eigen::Matrix<double, 6, 6> Mx_inv = Eigen::Matrix<double, 6, 6>::Zero();
+  /** @brief the manipulator joint mass projected in Cartesian space (6x6) */
+  Eigen::Matrix<double, 6, 6> Mx = Eigen::Matrix<double, 6, 6>::Zero();
+
   /**
    * @brief Log debug information based on parameter settings
    * @param time Current time for throttling logs
    */
-  void log_debug_info(const rclcpp::Time& time);
+  void log_debug_info(const rclcpp::Time & time);
 
   /**
    * @brief Check publisher count for a specific topic
    * @param topic_name Name of the topic to check
    * @return true if publisher count is safe (<=1), false otherwise
    */
-  bool check_topic_publisher_count(const std::string& topic_name);
+  bool check_topic_publisher_count(const std::string & topic_name);
 };
 
-} // namespace crisp_controllers
+}  // namespace crisp_controllers
