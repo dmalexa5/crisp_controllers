@@ -10,7 +10,7 @@ hide:
 # CRISP - **C**ompliant **R**OS2 Controllers for Learn**i**ng-Ba**s**ed Manipulation **P**olicies
 
 *Authors: [Daniel San Jose Pro](https://danielsanjosepro.github.io)[^1], [Oliver Hausdörfer](https://oliver.hausdoerfer.de/)[^1], [Ralf Römer](https://ralfroemer99.github.io)[^1], Maximilian Dösch[^1], [Martin Schuck](https://amacati.github.io/) [^1] and [Angela P. Schoellig](https://www.ce.cit.tum.de/lsy/prof-angela-schoellig/) [^1]*.
-[^1]: The authors are with Technical University of Munich, Germany; TUM School of Computation, Information and Technology, Department of Computer Engineering, Learning Systems and Robotics Lab; Munich Institute of Robotics and Machine Intelligence.
+[^1]: The authors are with Technical University of Munich, Germany; TUM School of Computation, Information and Technology, Department of Computer Engineering, Learning Systems and Robotics Lab; Munich Institute of Robotics and Machine Intelligence; and the Robotics Institute Germany.
 
 You want to deploy your learning-based policy to your manipulator, or collect teleoperation data? `CRISP` provides the tools for that.
 
