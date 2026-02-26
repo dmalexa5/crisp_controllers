@@ -117,13 +117,13 @@ CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & 
     : pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   pinocchio::computeFrameJacobian(model_, data_, q_pin, end_effector_frame_id, reference_frame, J);
 
-  J_pinv = pseudo_inverse(J, params_.nullspace.regularization);
+  J_pinv = pseudo_inverse(J, params_.jacobian_regularization);
   if (params_.nullspace.projector_type == "dynamic" || params_.use_operational_space) {
     pinocchio::computeMinverse(model_, data_, q_pin);
     data_.Minv.triangularView<Eigen::StrictlyLower>() =
       data_.Minv.transpose().triangularView<Eigen::StrictlyLower>();
     Mx_inv = J * data_.Minv * J.transpose();
-    Mx = pseudo_inverse(Mx_inv);
+    Mx = pseudo_inverse(Mx_inv, params_.operational_space_regularization);
   }
 
   if (params_.nullspace.projector_type == "dynamic") {
