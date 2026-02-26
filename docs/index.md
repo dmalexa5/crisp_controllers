@@ -216,7 +216,7 @@ You can check our preprint on arXiv: [2509.06819](https://arxiv.org/abs/2509.068
 ```bibtex
 @misc{pro2025crispcompliantros2,
       title={CRISP - Compliant ROS2 Controllers for Learning-Based Manipulation Policies and Teleoperation}, 
-      author={Daniel San José Pro and Oliver Hausdörfer and Ralf Römer and Maximilian Dösch and Martin Schuck and Angela P. Schöllig},
+      author={Daniel San José Pro and Oliver Hausdörfer and Ralf Römer and Maximilian Dösch and Martin Schuck and Angela P. Schoellig},
       year={2025},
       eprint={2509.06819},
       archivePrefix={arXiv},
