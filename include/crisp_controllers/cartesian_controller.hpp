@@ -20,7 +20,11 @@
 
 #include <crisp_controllers/utils/ros2_version.hpp>
 
+#if ROS2_VERSION_ABOVE_HUMBLE
 #include <crisp_controllers/cartesian_controller_parameters.hpp>
+#else
+#include <cartesian_controller_parameters.hpp>
+#endif
 
 #include <sensor_msgs/msg/joint_state.hpp>
 #include "realtime_tools/realtime_buffer.hpp"
