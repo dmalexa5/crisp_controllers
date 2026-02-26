@@ -205,6 +205,8 @@ private:
   pinocchio::Data::Matrix6x J;
   /** @brief End effector Jacobian matrix pseudoinverse */
   Eigen::MatrixXd J_pinv;
+  /** @brief Joint-space identity matrix */
+  Eigen::MatrixXd Id_nv;
 
   /** @brief Friction parameters 1 of size nv */
   Eigen::VectorXd fp1;

@@ -118,7 +118,6 @@ CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & 
   pinocchio::computeFrameJacobian(model_, data_, q_pin, end_effector_frame_id, reference_frame, J);
 
   J_pinv = pseudo_inverse(J, params_.nullspace.regularization);
-  Eigen::MatrixXd Id_nv = Eigen::MatrixXd::Identity(model_.nv, model_.nv);
   if (params_.nullspace.projector_type == "dynamic" || params_.use_operational_space) {
     pinocchio::computeMinverse(model_, data_, q_pin);
     data_.Minv.triangularView<Eigen::StrictlyLower>() =
@@ -305,6 +304,7 @@ CartesianController::on_configure(const rclcpp_lifecycle::State & /*previous_sta
   tau_previous = Eigen::VectorXd::Zero(model_.nv);
   J = Eigen::MatrixXd::Zero(6, model_.nv);
   J_pinv = Eigen::MatrixXd::Zero(model_.nv, 6);
+  Id_nv = Eigen::MatrixXd::Identity(model_.nv, model_.nv);
 
   // Map the friction parameters to Eigen vectors
   fp1 = Eigen::Map<Eigen::VectorXd>(params_.friction.fp1.data(), model_.nv);
