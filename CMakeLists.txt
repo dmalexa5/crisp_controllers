@@ -121,44 +121,44 @@ target_link_libraries(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
   PUBLIC
-controller_interface
-hardware_interface
-pluginlib
-rclcpp
-rclcpp_lifecycle
-pinocchio
-generate_parameter_library
-realtime_tools
+    controller_interface
+    hardware_interface
+    pluginlib
+    rclcpp
+    rclcpp_lifecycle
+    pinocchio
+    generate_parameter_library
+    realtime_tools
 )
 
 pluginlib_export_plugin_description_file(
         controller_interface crisp_controllers.xml)
 
 install(
-  TARGETS ${PROJECT_NAME}
-  EXPORT export_${PROJECT_NAME}
-  RUNTIME DESTINATION bin
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
+    TARGETS ${PROJECT_NAME}
+    EXPORT export_${PROJECT_NAME}
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
 )
 
 install(
-  DIRECTORY include/
-  DESTINATION include
+    DIRECTORY include/
+    DESTINATION include
 )
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_export_dependencies(
-  controller_interface
-  pluginlib
-  rclcpp
-  rclcpp_lifecycle
-  hardware_interface
-  Eigen3
-  pinocchio
-  realtime_tools
-  generate_parameter_library
+    controller_interface
+    pluginlib
+    rclcpp
+    rclcpp_lifecycle
+    hardware_interface
+    Eigen3
+    pinocchio
+    realtime_tools
+    generate_parameter_library
 )
 
 if(BUILD_TESTING)
