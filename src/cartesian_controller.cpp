@@ -62,41 +62,11 @@ CartesianController::state_interface_configuration() const {
 
 controller_interface::return_type
 CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & /*period*/) {
-  size_t num_joints = params_.joints.size();
-  for (size_t i = 0; i < num_joints; i++) {
-    // TODO(placeholder): later it might be better to get this thing prepared in the
-    // configuration part (not in the control loop)
-    auto joint_name = params_.joints[i];
-    auto joint_id = model_.getJointId(joint_name);  // pinocchio joind id might be different
-    auto joint = model_.joints[joint_id];
+  
+  // Update current state information with EMA filtered values
+  updateCurrentState();
 
-    q_ref[i] = exponential_moving_average(q_ref[i], q_target[i], params_.filter.q_ref);
-
-// Filtering joint position measurement 1 uses previous q, 0 uses new q from measurement.
-// q[i] = exponential_moving_average(q[i], state_interfaces_[i].get_value(), params_.filter.q);
-#if ROS2_VERSION_ABOVE_HUMBLE
-    q[i] = exponential_moving_average(
-      q[i], state_interfaces_[i].get_optional().value_or(q[i]), params_.filter.q);
-#else
-    q[i] = exponential_moving_average(q[i], state_interfaces_[i].get_value(), params_.filter.q);
-#endif
-
-    if (continous_joint_types.count(joint.shortname())) {  // Then we are handling a continous
-                                                           // joint that is SO(2)
-      q_pin[joint.idx_q()] = std::cos(q[i]);
-      q_pin[joint.idx_q() + 1] = std::sin(q[i]);
-    } else {  // simple revolute joint case
-      q_pin[joint.idx_q()] = q[i];
-    }
-#if ROS2_VERSION_ABOVE_HUMBLE
-    dq[i] = exponential_moving_average(
-      dq[i], state_interfaces_[num_joints + i].get_optional().value_or(dq[i]), params_.filter.dq);
-#else
-    dq[i] = exponential_moving_average(
-      dq[i], state_interfaces_[num_joints + i].get_value(), params_.filter.dq);
-#endif
-  }
-
+  // Check if new targets available
   if (new_target_pose_) {
     parse_target_pose_();
     new_target_pose_ = false;
@@ -147,7 +117,6 @@ CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & 
     : pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   pinocchio::computeFrameJacobian(model_, data_, q_pin, end_effector_frame_id, reference_frame, J);
 
-  Eigen::MatrixXd J_pinv(model_.nv, 6);
   J_pinv = pseudo_inverse(J, params_.nullspace.regularization);
   Eigen::MatrixXd Id_nv = Eigen::MatrixXd::Identity(model_.nv, model_.nv);
   if (params_.nullspace.projector_type == "dynamic" || params_.use_operational_space) {
@@ -221,7 +190,7 @@ CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & 
   tau_d = exponential_moving_average(tau_d, tau_previous, params_.filter.output_torque);
 
   if (!params_.stop_commands) {
-    for (size_t i = 0; i < num_joints; ++i) {
+    for (size_t i = 0; i < num_joints_; ++i) {
 #if ROS2_VERSION_ABOVE_HUMBLE
       (void)command_interfaces_[i].set_value(tau_d[i]);
 #else
@@ -323,7 +292,9 @@ CartesianController::on_configure(const rclcpp_lifecycle::State & /*previous_sta
       return CallbackReturn::ERROR;
     }
   }
-
+  
+  // Preallocate the matrices and vectors that will be used in the control loop
+  num_joints_ = params_.joints.size();
   end_effector_frame_id = model_.getFrameId(params_.end_effector_frame);
   q = Eigen::VectorXd::Zero(model_.nv);
   q_pin = Eigen::VectorXd::Zero(model_.nq);
@@ -333,6 +304,7 @@ CartesianController::on_configure(const rclcpp_lifecycle::State & /*previous_sta
   dq_ref = Eigen::VectorXd::Zero(model_.nv);
   tau_previous = Eigen::VectorXd::Zero(model_.nv);
   J = Eigen::MatrixXd::Zero(6, model_.nv);
+  J_pinv = Eigen::MatrixXd::Zero(model_.nv, 6);
 
   // Map the friction parameters to Eigen vectors
   fp1 = Eigen::Map<Eigen::VectorXd>(params_.friction.fp1.data(), model_.nv);
@@ -491,41 +463,48 @@ void CartesianController::setStiffnessAndDamping() {
   }
 }
 
-CallbackReturn
-CartesianController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
-  auto num_joints = params_.joints.size();
-  for (size_t i = 0; i < num_joints; i++) {
-    // TODO(placeholder): later it might be better to get this thing prepared in the
-    // configuration part (not in the control loop)
+void CartesianController::updateCurrentState(bool filter_measurements) {
+  for (size_t i = 0; i < num_joints_; i++) {
     auto joint_name = params_.joints[i];
     auto joint_id = model_.getJointId(joint_name);  // pinocchio joind id might be different
     auto joint = model_.joints[joint_id];
 
 #if ROS2_VERSION_ABOVE_HUMBLE
-    q[i] = state_interfaces_[i].get_optional().value_or(q[i]);
+    double q_meas = state_interfaces_[i].get_optional().value_or(q[i]);
+    double qd_meas = state_interfaces_[num_joints_ + i].get_optional().value_or(dq[i]);
 #else
-    q[i] = state_interfaces_[i].get_value();
+    double q_meas = state_interfaces_[i].get_value();
+    double dq_meas = state_interfaces_[num_joints_ + i].get_value();
 #endif
-    if (joint.shortname() == "JointModelRZ") {  // simple revolute joint case
-      q_pin[joint.idx_q()] = q[i];
-    } else if (continous_joint_types.count(
-                 joint.shortname())) {  // Then we are handling a continous
-                                        // joint that is SO(2)
+    
+    q_ref[i] = filter_measurements 
+      ? exponential_moving_average(q_ref[i], q_target[i], params_.filter.q_ref)
+      : q_meas;
+
+    q[i] = filter_measurements
+      ? exponential_moving_average(q[i], q_meas, params_.filter.q)
+      : q_meas;    
+    
+    if (continous_joint_types.count(joint.shortname())) { // Then we are handling a continous
+                                                          // joint that is SO(2)
       q_pin[joint.idx_q()] = std::cos(q[i]);
       q_pin[joint.idx_q() + 1] = std::sin(q[i]);
+    } else {  // simple revolute joint case
+      q_pin[joint.idx_q()] = q[i];
     }
 
-    q_ref[i] = q[i];
-    q_target[i] = q[i];
-
-#if ROS2_VERSION_ABOVE_HUMBLE
-    dq[i] = state_interfaces_[num_joints + i].get_optional().value_or(dq[i]);
-    dq_ref[i] = dq[i];
-#else
-    dq[i] = state_interfaces_[num_joints + i].get_value();
-    dq_ref[i] = state_interfaces_[num_joints + i].get_value();
-#endif
+    dq[i] = filter_measurements
+      ? exponential_moving_average(dq[i], dq_meas, params_.filter.dq)
+      : dq_meas;
   }
+}
+
+CallbackReturn
+CartesianController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
+  
+  // Update the current state with initial measurements (no EMA filtering)
+  // to avoid large initial errors
+  updateCurrentState(false);
 
   pinocchio::forwardKinematics(model_, data_, q_pin, dq);
   pinocchio::updateFramePlacements(model_, data_);

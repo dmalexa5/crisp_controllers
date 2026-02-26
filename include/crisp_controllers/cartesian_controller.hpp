@@ -20,11 +20,7 @@
 
 #include <crisp_controllers/utils/ros2_version.hpp>
 
-#if ROS2_VERSION_ABOVE_HUMBLE
 #include <crisp_controllers/cartesian_controller_parameters.hpp>
-#else
-#include <cartesian_controller_parameters.hpp>
-#endif
 
 #include <sensor_msgs/msg/joint_state.hpp>
 #include "realtime_tools/realtime_buffer.hpp"
@@ -115,6 +111,12 @@ private:
   void setStiffnessAndDamping();
 
   /**
+   * @brief Get the current state of the robot from hardware interfaces and update internal variables
+   * @param filter_measurements Whether to apply exponential moving average filtering to the measurements
+   */
+  void updateCurrentState(bool filter_measurements = true);
+
+  /**
    * @brief Reads the target pose in realtime loop from the buffer and parses it to be used in the controller.
    */
   void parse_target_pose_();
@@ -128,6 +130,8 @@ private:
    * @brief Reads the target wrench in realtime loop from the buffer and parses it to be used in the controller.
    */
   void parse_target_wrench_();
+
+  size_t num_joints_;
 
   bool new_target_pose_;
   bool new_target_joint_;
@@ -199,6 +203,8 @@ private:
   pinocchio::SE3 end_effector_pose;
   /** @brief End effector Jacobian matrix */
   pinocchio::Data::Matrix6x J;
+  /** @brief End effector Jacobian matrix pseudoinverse */
+  Eigen::MatrixXd J_pinv;
 
   /** @brief Friction parameters 1 of size nv */
   Eigen::VectorXd fp1;
