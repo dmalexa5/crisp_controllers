@@ -118,7 +118,7 @@ private:
    * @brief Get the current state of the robot from hardware interfaces and update internal variables
    * @param filter_measurements Whether to apply exponential moving average filtering to the measurements
    */
-  void updateCurrentState(bool filter_measurements = true);
+  void updateCurrentState(bool initialize = false);
 
   /**
    * @brief Reads the target pose in realtime loop from the buffer and parses it to be used in the controller.
@@ -134,8 +134,6 @@ private:
    * @brief Reads the target wrench in realtime loop from the buffer and parses it to be used in the controller.
    */
   void parse_target_wrench_();
-
-  size_t num_joints_;
 
   bool new_target_pose_;
   bool new_target_joint_;
