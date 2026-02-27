@@ -117,7 +117,7 @@ CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & 
     : pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   pinocchio::computeFrameJacobian(model_, data_, q_pin, end_effector_frame_id, reference_frame, J);
 
-  J_pinv = pseudo_inverse(J, params_.jacobian_regularization);
+  J_pinv = pseudo_inverse(J, params_.nullspace.regularization);
   if (params_.nullspace.projector_type == "dynamic" || params_.use_operational_space) {
     pinocchio::computeMinverse(model_, data_, q_pin);
     data_.Minv.triangularView<Eigen::StrictlyLower>() =
@@ -471,7 +471,7 @@ void CartesianController::updateCurrentState(bool filter_measurements) {
 
 #if ROS2_VERSION_ABOVE_HUMBLE
     double q_meas = state_interfaces_[i].get_optional().value_or(q[i]);
-    double qd_meas = state_interfaces_[num_joints_ + i].get_optional().value_or(dq[i]);
+    double dq_meas = state_interfaces_[num_joints_ + i].get_optional().value_or(dq[i]);
 #else
     double q_meas = state_interfaces_[i].get_value();
     double dq_meas = state_interfaces_[num_joints_ + i].get_value();
