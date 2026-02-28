@@ -116,7 +116,7 @@ private:
 
   /**
    * @brief Get the current state of the robot from hardware interfaces and update internal variables
-   * @param filter_measurements Whether to apply exponential moving average filtering to the measurements
+   * @param initialize If set to true, initialize the exponential moving average filter with the current state 
    */
   void updateCurrentState(bool initialize = false);
 
