@@ -64,7 +64,7 @@ CartesianController::state_interface_configuration() const {
 }
 
 controller_interface::return_type
-CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & /*period*/) {
+CartesianController::update(const rclcpp::Time & time, const rclcpp::Duration & period) {
   
   // Update current state information with EMA filtered values
   updateCurrentState();
