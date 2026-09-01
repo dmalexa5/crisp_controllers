@@ -33,8 +33,8 @@ public:
     }
 
     // Load one independently configurable trajectory for each controller task.
-    left_ = loadArmMotion("left", "left_fr3_hand_tcp", "target_pose/left", "linear");
-    right_ = loadArmMotion("right", "right_fr3_hand_tcp", "target_pose/right", "circular");
+    left_ = loadArmMotion("left", "left_fr3_hand_tcp", "whole_body_controller/target_pose/left", "linear");
+    right_ = loadArmMotion("right", "right_fr3_hand_tcp", "whole_body_controller/target_pose/right", "circular");
     validateArmMotion(left_);
     validateArmMotion(right_);
 
