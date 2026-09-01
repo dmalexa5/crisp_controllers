@@ -1,0 +1,30 @@
+optimization_tracking_test_node:
+  ros__parameters:
+    base_frame: rail_link
+    publish_rate: 200.0
+    startup_delay: 2.0
+
+    # The node captures both home poses from TF before starting motion.
+    left:
+      frame: left_fr3_hand_tcp
+      topic: /whole_body_controller/target_pose/left
+      motion_type: linear
+      linear_direction: [1.0, 1.0, 0.0]
+      linear_amplitude: 0.15
+      linear_speed: 0.3
+      circle_axis_u: [1.0, 0.0, 0.0]
+      circle_axis_v: [0.0, 1.0, 0.0]
+      circle_radius: 0.05
+      circle_speed: 0.5
+
+    right:
+      frame: right_fr3_hand_tcp
+      topic: /whole_body_controller/target_pose/right
+      motion_type: circular
+      linear_direction: [0.0, -1.0, 0.0]
+      linear_amplitude: 0.05
+      linear_speed: 0.5
+      circle_axis_u: [1.0, 0.0, 0.0]
+      circle_axis_v: [0.0, 1.0, 0.0]
+      circle_radius: 0.2
+      circle_speed: 0.3

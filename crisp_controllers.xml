@@ -11,6 +11,12 @@
             Cartesian admittance controller with impedance outer loop for compliant force-based interaction.
         </description>
     </class>
+    <class name="crisp_controllers/WholeBodyController"
+           type="crisp_controllers::WholeBodyController" base_class_type="controller_interface::ControllerInterface">
+        <description>
+            Torque-bounded acceleration-level QP control for multiple Cartesian end-effector frames.
+        </description>
+    </class>
     <class name="crisp_controllers/StateBroadcaster"
            type="crisp_controllers::StateBroadcaster" base_class_type="controller_interface::ControllerInterface">
         <description>

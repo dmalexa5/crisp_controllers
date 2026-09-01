@@ -1,0 +1,76 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+    whole_body_controller:
+      type: crisp_controllers/WholeBodyController
+
+whole_body_controller:
+  ros__parameters:
+    joints:
+      - base_slider_joint
+      - left_fr3_joint1
+      - left_fr3_joint2
+      - left_fr3_joint3
+      - left_fr3_joint4
+      - left_fr3_joint5
+      - left_fr3_joint6
+      - left_fr3_joint7
+      - right_fr3_joint1
+      - right_fr3_joint2
+      - right_fr3_joint3
+      - right_fr3_joint4
+      - right_fr3_joint5
+      - right_fr3_joint6
+      - right_fr3_joint7
+
+    end_effector_frames:
+      - left_fr3_hand_tcp
+      - right_fr3_hand_tcp
+    topics:
+      target_pose: [target_pose/left, target_pose/right]
+      target_joint: target_joint
+    # Pinocchio's world-aligned coordinates are rooted at this URDF root link.
+    base_frame: rail_link
+
+    # Per-frame order is [x, y, z, rx, ry, rz].
+    task:
+      kp: [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0,
+           1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+      kd: [60.0, 60.0, 60.0, 60.0, 60.0, 60.0,
+           60.0, 60.0, 40.0, 60.0, 60.0, 60.0]
+      error_clip: [0.10, 0.10, 0.10, 0.50, 0.50, 0.50]
+
+    # Gains follow the joint order above and mirror FSM_TaskSpaceCtrl.cpp.
+    posture:
+      kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 100.0,
+           10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 100.0]
+      kd: [1.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0,
+           0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0]
+
+    dynamics:
+      armature: [0.1]
+      joint_damping: [1.0]
+      use_nonlinear_effects: true
+
+    weights:
+      task: 10.0
+      qddot: 10.0
+      regularization: 0.001
+      regularization_qddot: 1.0
+    
+    nullspace:
+      regularization: 0.01
+      projector_type: dynamic
+
+    torque_limits: [1000.0,
+                    87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0,
+                    87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+    max_delta_tau: 0.5
+    filter:
+      target_pose: 0.1
+      output_torque: 0.5
+    qp:
+      max_working_set_recalculations: 100
+    stop_commands: false
+    log:
+      enabled: false

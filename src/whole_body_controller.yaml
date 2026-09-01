@@ -1,0 +1,145 @@
+whole_body_controller:
+  joints:
+    type: string_array
+    default_value: []
+    description: "Ordered joints controlled through effort interfaces."
+
+  end_effector_frames:
+    type: string_array
+    default_value: ["left_fr3_hand_tcp", "right_fr3_hand_tcp"]
+    description: "Ordered model frames that form independent 6D Cartesian tasks."
+
+  base_frame:
+    type: string
+    default_value: ""
+    description: "Expected PoseStamped header frame. Empty disables frame validation."
+
+  topics:
+    target_pose:
+      type: string_array
+      default_value: ["target_pose/left", "target_pose/right"]
+      description: "Ordered suffixes for private ~/target_pose/<suffix> subscriptions."
+    target_joint:
+      type: string
+      default_value: "target_joint"
+      description: "Suffix for the private ~/<suffix> posture target subscription."
+
+  task:
+    kp:
+      type: double_array
+      default_value: [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+      description: "Cartesian acceleration gains. Supply 6 values or 6 per end-effector."
+    kd:
+      type: double_array
+      default_value: [60.0, 60.0, 60.0, 60.0, 60.0, 60.0]
+      description: "Cartesian velocity gains. Supply 6 values or 6 per end-effector."
+    error_clip:
+      type: double_array
+      default_value: [0.10, 0.10, 0.10, 0.50, 0.50, 0.50]
+      description: "Absolute position/orientation error limits, repeated for every task."
+      validation:
+        fixed_size<>: [6]
+
+  posture:
+    kp:
+      type: double_array
+      default_value: [10.0]
+      description: "Joint posture acceleration gains. Supply one or one per joint."
+    kd:
+      type: double_array
+      default_value: [1.0]
+      description: "Joint posture velocity gains. Supply one or one per joint."
+
+  dynamics:
+    armature:
+      type: double_array
+      default_value: [0.1]
+      description: "Rotor/actuator inertia added by Pinocchio. Supply one or one per joint."
+    joint_damping:
+      type: double_array
+      default_value: [1.0]
+      description: "Viscous damping included in nonlinear effects. Supply one or one per joint."
+    use_nonlinear_effects:
+      type: bool
+      default_value: true
+      description: "Include Pinocchio Coriolis, centrifugal, and gravity torques."
+
+  weights:
+    task:
+      type: double
+      default_value: 10.0
+      validation:
+        gt_eq<>: [0.0]
+    qddot:
+      type: double
+      default_value: 10.0
+      validation:
+        gt_eq<>: [0.0]
+    regularization:
+      type: double
+      default_value: 0.001
+      validation:
+        gt<>: [0.0]
+    regularization_qddot:
+      type: double
+      default_value: 1.0
+      validation:
+        gt_eq<>: [0.0]
+
+  nullspace:
+    regularization:
+      type: double
+      default_value: 0.01
+      description: "Damping used for nullspace pseudo-inverses."
+      validation:
+        gt<>: [0.0]
+    projector_type:
+      type: string
+      default_value: "dynamic"
+      description: "Posture-objective projector: dynamic, kinematic, or none."
+      validation:
+        one_of<>: [["dynamic", "kinematic", "none"]]
+
+  torque_limits:
+    type: double_array
+    default_value: []
+    description: "Symmetric limits in joint parameter order. Empty uses URDF effort limits."
+
+  max_delta_tau:
+    type: double
+    default_value: 0.5
+    description: "Maximum per-cycle torque change. Set zero to disable rate limiting."
+    validation:
+      gt_eq<>: [0.0]
+
+  filter:
+    target_pose:
+      type: double
+      default_value: 0.1
+      description: "Previous-sample weight for pose EMA/slerp."
+      validation:
+        bounds<>: [0.0, 1.0]
+    output_torque:
+      type: double
+      default_value: 0.5
+      description: "Previous-sample weight for output torque EMA."
+      validation:
+        bounds<>: [0.0, 1.0]
+
+  qp:
+    max_working_set_recalculations:
+      type: int
+      default_value: 200
+      validation:
+        gt<>: [0]
+
+  stop_commands:
+    type: bool
+    default_value: false
+    description: "Compute but do not write effort commands."
+
+  log:
+    enabled:
+      type: bool
+      default_value: false
+      description: "Emit throttled controller state and QP diagnostics."

@@ -58,12 +58,36 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(pinocchio REQUIRED)
+
+# Keep Pinocchio and its ABI-sensitive dependencies in the same installation
+# as ROS. robotpkg also installs newer copies into /opt/openrobots for qpOASES;
+# mixing those libraries with ROS Pinocchio headers corrupts Model destruction.
+get_filename_component(ROS_INSTALL_PREFIX "${rclcpp_DIR}/../../.." ABSOLUTE)
+set(ROS_ARCH_CMAKE_DIR "${ROS_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/cmake")
+if(EXISTS "${ROS_ARCH_CMAKE_DIR}/pinocchio/pinocchioConfig.cmake")
+  list(REMOVE_ITEM CMAKE_PREFIX_PATH "${ROS_INSTALL_PREFIX}")
+  list(PREPEND CMAKE_PREFIX_PATH "${ROS_INSTALL_PREFIX}")
+  list(PREPEND CMAKE_LIBRARY_PATH "${ROS_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+  set(pinocchio_DIR "${ROS_ARCH_CMAKE_DIR}/pinocchio" CACHE PATH "ROS Pinocchio" FORCE)
+  set(eigenpy_DIR "${ROS_ARCH_CMAKE_DIR}/eigenpy" CACHE PATH "ROS EigenPy" FORCE)
+  set(coal_DIR "${ROS_ARCH_CMAKE_DIR}/coal" CACHE PATH "ROS Coal" FORCE)
+endif()
+set(CRISP_SAVED_CMAKE_IGNORE_PREFIX_PATH "${CMAKE_IGNORE_PREFIX_PATH}")
+list(APPEND CMAKE_IGNORE_PREFIX_PATH "/opt/openrobots")
+find_package(pinocchio REQUIRED CONFIG)
+set(CMAKE_IGNORE_PREFIX_PATH "${CRISP_SAVED_CMAKE_IGNORE_PREFIX_PATH}")
+get_target_property(CRISP_PINOCCHIO_LIBRARY pinocchio::pinocchio_default IMPORTED_LOCATION_NONE)
+get_target_property(CRISP_COAL_LIBRARY coal::coal IMPORTED_LOCATION_NONE)
+message(STATUS "Using Pinocchio library: ${CRISP_PINOCCHIO_LIBRARY}")
+message(STATUS "Using Coal library: ${CRISP_COAL_LIBRARY}")
 find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(qpOASES REQUIRED HINTS /opt/openrobots/lib/cmake/qpOASES)
 
 generate_parameter_library(
   cartesian_controller_parameters
@@ -85,19 +109,43 @@ generate_parameter_library(
   src/cartesian_admittance_controller.yaml
 )
 
+generate_parameter_library(
+  whole_body_controller_parameters
+  src/whole_body_controller.yaml
+)
+
 add_library(
         ${PROJECT_NAME}
         SHARED
         src/cartesian_controller.cpp
         src/cartesian_admittance_controller.cpp
         src/state_broadcaster.cpp
+        src/whole_body_controller.cpp
         src/torque_feedback_controller.cpp
+)
+
+add_executable(
+  optimization_tracking_test_node
+  tests/optimization_tracking_test_node.cpp
+)
+target_link_libraries(optimization_tracking_test_node project_compile_options)
+ament_target_dependencies(
+  optimization_tracking_test_node
+  rclcpp
+  geometry_msgs
+  tf2
+  tf2_ros
 )
 
 target_link_libraries(${PROJECT_NAME}
   PRIVATE
     project_compile_options
+    ${qpOASES_LIBRARY}
 )
+
+# qpOASES lives in /opt/openrobots on robotpkg systems. Mark it as a system
+# include so that its bundled dependencies cannot shadow ROS-selected headers.
+target_compile_options(${PROJECT_NAME} PRIVATE "SHELL:-idirafter ${qpOASES_INCLUDE_DIR}")
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC
@@ -118,6 +166,7 @@ target_link_libraries(${PROJECT_NAME}
     cartesian_controller_parameters
     cartesian_admittance_controller_parameters
     state_broadcaster_parameters
+    whole_body_controller_parameters
     torque_feedback_controller_parameters
 )
 
@@ -130,6 +179,13 @@ target_link_libraries(${PROJECT_NAME}
     pinocchio::pinocchio
     realtime_tools::realtime_tools
     ${std_msgs_TARGETS}
+    ${geometry_msgs_TARGETS}
+    ${sensor_msgs_TARGETS}
+)
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  BUILD_RPATH "${qpOASES_LIBRARY_DIR}"
+  INSTALL_RPATH "${qpOASES_LIBRARY_DIR}"
 )
 
 # ros2_control did not export namespaced targets until after humble
@@ -159,8 +215,18 @@ install(
 )
 
 install(
+    TARGETS optimization_tracking_test_node
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
     DIRECTORY include/
     DESTINATION include
+)
+
+install(
+    DIRECTORY config/
+    DESTINATION share/${PROJECT_NAME}/config
 )
 
 ament_export_dependencies(
