@@ -222,6 +222,9 @@ bool WholeBodyController::configureModel(const std::string & robot_description) 
   for (pinocchio::JointIndex joint_id = 1; joint_id < raw_model.joints.size(); ++joint_id) {
     if (requested_joints.count(raw_model.names[joint_id]) == 0U) {
       joints_to_lock.push_back(joint_id);
+      RCLCPP_INFO(
+        get_node()->get_logger(), "Locking unconfigured joint '%s' at its neutral position.",
+        raw_model.names[joint_id].c_str());
     }
   }
   model_ = pinocchio::buildReducedModel(
@@ -446,10 +449,14 @@ bool WholeBodyController::updateModelAndTasks() {
   mass_matrix_ = data_.M;
   mass_matrix_inverse_ = data_.Minv;
 
-  if (params_.dynamics.use_nonlinear_effects) {
-    nonlinear_effects_ = pinocchio::nonLinearEffects(model_, data_, q_, dq_);
-  } else {
-    nonlinear_effects_.setZero();
+  // Assemble independently selectable rigid-body compensation terms.
+  nonlinear_effects_.setZero();
+  if (params_.dynamics.use_coriolis) {
+    pinocchio::computeCoriolisMatrix(model_, data_, q_, dq_);
+    nonlinear_effects_.noalias() += data_.C * dq_;
+  }
+  if (params_.dynamics.use_gravity) {
+    nonlinear_effects_ += pinocchio::computeGeneralizedGravity(model_, data_, q_);
   }
   nonlinear_effects_ += joint_damping_.cwiseProduct(dq_);
 

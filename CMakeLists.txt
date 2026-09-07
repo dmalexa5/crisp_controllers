@@ -52,6 +52,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(pluginlib REQUIRED)
@@ -131,6 +132,7 @@ add_executable(
 target_link_libraries(optimization_tracking_test_node project_compile_options)
 ament_target_dependencies(
   optimization_tracking_test_node
+  ament_index_cpp
   rclcpp
   geometry_msgs
   tf2

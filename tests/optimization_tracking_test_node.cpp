@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <rclcpp/create_timer.hpp>
@@ -21,8 +22,8 @@ namespace crisp_controllers {
 
 class OptimizationTrackingTestNode : public rclcpp::Node {
 public:
-  OptimizationTrackingTestNode()
-  : Node("optimization_tracking_test_node"),
+  explicit OptimizationTrackingTestNode(const rclcpp::NodeOptions & options)
+  : Node("optimization_tracking_test_node", options),
     tf_buffer_(std::make_unique<tf2_ros::Buffer>(get_clock())),
     tf_listener_(std::make_shared<tf2_ros::TransformListener>(*tf_buffer_)) {
     base_frame_ = declare_parameter<std::string>("base_frame", "rail_link");
@@ -235,7 +236,15 @@ private:
 int main(int argc, char ** argv) {
   rclcpp::init(argc, argv);
   try {
-    rclcpp::spin(std::make_shared<crisp_controllers::OptimizationTrackingTestNode>());
+    // Load the installed test trajectory while retaining global ROS arguments.
+    const std::string parameter_file =
+      ament_index_cpp::get_package_share_directory("crisp_controllers") +
+      "/config/optimization_tracking_test.yaml";
+    rclcpp::NodeOptions options;
+    options.arguments({"--ros-args", "--params-file", parameter_file});
+    auto node = std::make_shared<crisp_controllers::OptimizationTrackingTestNode>(options);
+    RCLCPP_INFO(node->get_logger(), "Loaded tracking parameters from '%s'.", parameter_file.c_str());
+    rclcpp::spin(node);
   } catch (const std::exception & exception) {
     RCLCPP_FATAL(rclcpp::get_logger("optimization_tracking_test_node"), "%s", exception.what());
   }

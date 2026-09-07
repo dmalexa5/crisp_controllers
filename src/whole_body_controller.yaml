@@ -59,30 +59,38 @@ whole_body_controller:
       type: double_array
       default_value: [1.0]
       description: "Viscous damping included in nonlinear effects. Supply one or one per joint."
-    use_nonlinear_effects:
+    use_coriolis:
       type: bool
       default_value: true
-      description: "Include Pinocchio Coriolis, centrifugal, and gravity torques."
+      description: "Add Pinocchio Coriolis and centrifugal compensation C(q,dq)dq."
+    use_gravity:
+      type: bool
+      default_value: true
+      description: "Add Pinocchio generalized gravity compensation g(q)."
 
   weights:
     task:
       type: double
       default_value: 10.0
+      description: "Weight of the stacked Cartesian acceleration-tracking objective."
       validation:
         gt_eq<>: [0.0]
     qddot:
       type: double
       default_value: 10.0
+      description: "Weight of the projected joint-posture acceleration objective."
       validation:
         gt_eq<>: [0.0]
     regularization:
       type: double
       default_value: 0.001
+      description: "Positive diagonal torque regularization added to the QP Hessian."
       validation:
         gt<>: [0.0]
     regularization_qddot:
       type: double
       default_value: 1.0
+      description: "Weight penalizing generalized acceleration through M(q)^-1."
       validation:
         gt_eq<>: [0.0]
 
@@ -130,6 +138,7 @@ whole_body_controller:
     max_working_set_recalculations:
       type: int
       default_value: 200
+      description: "Maximum qpOASES working-set recalculations allowed per control update."
       validation:
         gt<>: [0]
 

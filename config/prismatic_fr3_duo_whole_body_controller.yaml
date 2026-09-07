@@ -50,7 +50,8 @@ whole_body_controller:
     dynamics:
       armature: [0.1]
       joint_damping: [1.0]
-      use_nonlinear_effects: true
+      use_coriolis: true
+      use_gravity: true
 
     weights:
       task: 10.0
