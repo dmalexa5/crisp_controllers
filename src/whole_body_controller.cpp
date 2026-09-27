@@ -59,7 +59,7 @@ WholeBodyController::state_interface_configuration() const {
 }
 
 controller_interface::return_type WholeBodyController::update(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/) {
+  const rclcpp::Time & time, const rclcpp::Duration & period) {
   // Read commands and update all rigid-body quantities before assembling the QP.
   
   // Read joint states from hardware interfaces
@@ -96,15 +96,24 @@ controller_interface::return_type WholeBodyController::update(
     return controller_interface::return_type::OK;
   }
 
-  // Apply the same output protections used by the existing Cartesian controller.
-  Eigen::VectorXd commanded_torque = optimized_torque;
+  // Add optional direct joint feedback to the model-based WBC feed-forward torque.
+  feedback_torque_.setZero();
+  if (params_.feedback.enabled) {
+    feedback_torque_ = feedback_kp_.cwiseProduct(q_target_ - q_) +
+      feedback_kd_.cwiseProduct(dq_target_ - dq_);
+  }
+
+  // Apply output protections to the complete command sent to the hardware.
+  Eigen::VectorXd commanded_torque = optimized_torque + feedback_torque_;
+  // Eigen::VectorXd commanded_torque = feedback_torque_;
   if (params_.max_delta_tau > 0.0) {
     commanded_torque = saturateTorqueRate(commanded_torque, previous_torque_, params_.max_delta_tau);
   }
   commanded_torque = exponential_moving_average(previous_torque_, commanded_torque, params_.filter.output_torque);
   commanded_torque = commanded_torque.cwiseMin(torque_max_).cwiseMax(torque_min_);
 
-  // Write commands to hardware interfaces 
+  // Publish the components immediately before writing the protected command.
+  publishTorqueDecomposition(time, period, commanded_torque);
   writeTorqueCommand(commanded_torque);
   previous_torque_ = commanded_torque;
 
@@ -157,7 +166,7 @@ CallbackReturn WholeBodyController::on_configure(
   // Config necessary parameters
   // Config target cartesian poses and joint pose subscription topics  
   if (!configureModel(result.front().as_string()) || !configureParameters() ||
-      !configureSubscriptions()) {
+      !configureSubscriptions() || !configureTorqueDiagnostics()) {
     return CallbackReturn::ERROR;
   }
 
@@ -178,12 +187,18 @@ CallbackReturn WholeBodyController::on_activate(
   // Start from a Cartesian and joint hold to avoid a command discontinuity.
   q_target_ = q_;
   dq_target_.setZero();
+  motion_torque_.setZero();
+  feedforward_torque_.setZero();
+  feedback_torque_.setZero();
   previous_torque_.setZero();
+  decomposition_elapsed_ = rclcpp::Duration(0, 0);
   joint_target_buffer_.writeFromNonRT(nullptr);
   for (auto & task : tasks_) {
     task.target_pose = task.current_pose;
     task.desired_pose = task.current_pose;
+    task.target_velocity.setZero();
     task.target_buffer->writeFromNonRT(nullptr);
+    task.velocity_target_buffer->writeFromNonRT(nullptr);
   }
 
   RCLCPP_INFO(get_node()->get_logger(), "Whole-body controller activated in hold mode.");
@@ -272,6 +287,8 @@ bool WholeBodyController::configureModel(const std::string & robot_description) 
     task.jacobian_dot = Eigen::MatrixXd::Zero(6, model_.nv);
     task.target_buffer = std::make_unique<realtime_tools::RealtimeBuffer<
       std::shared_ptr<geometry_msgs::msg::PoseStamped>>>();
+    task.velocity_target_buffer = std::make_unique<realtime_tools::RealtimeBuffer<
+      std::shared_ptr<geometry_msgs::msg::TwistStamped>>>();
   }
   return true;
 }
@@ -284,6 +301,8 @@ bool WholeBodyController::configureParameters() {
   Eigen::VectorXd armature;
   if (!expandJointParameter(params_.posture.kp, "posture.kp", posture_kp_) ||
       !expandJointParameter(params_.posture.kd, "posture.kd", posture_kd_) ||
+      !expandJointParameter(params_.feedback.kp, "feedback.kp", feedback_kp_) ||
+      !expandJointParameter(params_.feedback.kd, "feedback.kd", feedback_kd_) ||
       !expandJointParameter(params_.dynamics.armature, "dynamics.armature", armature) ||
       !expandJointParameter(params_.dynamics.joint_damping, "dynamics.joint_damping", joint_damping_) ||
       !expandTaskParameter(params_.task.kp, "task.kp", task_kp_) ||
@@ -320,7 +339,10 @@ bool WholeBodyController::configureParameters() {
   q_target_ = Eigen::VectorXd::Zero(joint_count);
   dq_target_ = Eigen::VectorXd::Zero(joint_count);
   qddot_reference_ = Eigen::VectorXd::Zero(joint_count);
+  motion_torque_ = Eigen::VectorXd::Zero(joint_count);
   nonlinear_effects_ = Eigen::VectorXd::Zero(joint_count);
+  feedforward_torque_ = Eigen::VectorXd::Zero(joint_count);
+  feedback_torque_ = Eigen::VectorXd::Zero(joint_count);
   previous_torque_ = Eigen::VectorXd::Zero(joint_count);
   mass_matrix_ = Eigen::MatrixXd::Zero(joint_count, joint_count);
   mass_matrix_inverse_ = Eigen::MatrixXd::Zero(joint_count, joint_count);
@@ -331,12 +353,54 @@ bool WholeBodyController::configureParameters() {
   return true;
 }
 
+bool WholeBodyController::configureTorqueDiagnostics() {
+  if (!params_.decompose_commands.enabled) {
+    return true;
+  }
+
+  decomposition_interval_ =
+    rclcpp::Duration::from_seconds(1.0 / params_.decompose_commands.publish_frequency);
+  decomposition_elapsed_ = rclcpp::Duration(0, 0);
+
+  // Construct all publishers outside the real-time update path and preallocate messages.
+  const auto configure_diagnostic = [this](
+      TorqueDiagnostic & diagnostic, const std::string & topic) -> bool {
+      if (topic.empty()) {
+        RCLCPP_ERROR(get_node()->get_logger(), "Torque diagnostic topic must not be empty.");
+        return false;
+      }
+      diagnostic.publisher = get_node()->create_publisher<sensor_msgs::msg::JointState>(
+        topic, rclcpp::SystemDefaultsQoS());
+      diagnostic.realtime_publisher = std::make_shared<JointStateRealtimePublisher>(
+        diagnostic.publisher);
+      diagnostic.message.name = params_.joints;
+      diagnostic.message.effort.assign(params_.joints.size(), 0.0);
+#if !REALTIME_TOOLS_NEW_API
+      diagnostic.realtime_publisher->msg_ = diagnostic.message;
+#endif
+      return true;
+    };
+
+  return
+    configure_diagnostic(motion_diagnostic_, params_.decompose_commands.motion_topic) &&
+    configure_diagnostic(nonlinear_diagnostic_, params_.decompose_commands.nonlinear_topic) &&
+    configure_diagnostic(feedforward_diagnostic_, params_.decompose_commands.feedforward_topic) &&
+    configure_diagnostic(feedback_diagnostic_, params_.decompose_commands.feedback_topic) &&
+    configure_diagnostic(command_diagnostic_, params_.decompose_commands.command_topic);
+}
+
 bool WholeBodyController::configureSubscriptions() {
   // Verify the ordered suffix used for each private task-space target topic.
   const auto & pose_topic_suffixes = params_.topics.target_pose;
+  const auto & velocity_topic_suffixes = params_.topics.target_velocity;
   if (pose_topic_suffixes.size() != tasks_.size()) {
     RCLCPP_ERROR(
       get_node()->get_logger(), "topics.target_pose must match end_effector_frames.");
+    return false;
+  }
+  if (velocity_topic_suffixes.size() != tasks_.size()) {
+    RCLCPP_ERROR(
+      get_node()->get_logger(), "topics.target_velocity must match end_effector_frames.");
     return false;
   }
   const std::unordered_set<std::string> unique_suffixes(
@@ -347,20 +411,37 @@ bool WholeBodyController::configureSubscriptions() {
       get_node()->get_logger(), "topics.target_pose must contain unique non-empty suffixes.");
     return false;
   }
+  const std::unordered_set<std::string> unique_velocity_suffixes(
+    velocity_topic_suffixes.begin(), velocity_topic_suffixes.end());
+  if (unique_velocity_suffixes.size() != velocity_topic_suffixes.size() ||
+      unique_velocity_suffixes.count("") != 0U) {
+    RCLCPP_ERROR(
+      get_node()->get_logger(), "topics.target_velocity must contain unique non-empty suffixes.");
+    return false;
+  }
 
   // Give every task an independent realtime buffer and PoseStamped subscription.
   for (std::size_t task_index = 0; task_index < tasks_.size(); ++task_index) {
     auto & task = tasks_[task_index];
     task.topic_name = pose_topic_suffixes[task_index];
+    task.velocity_topic_name = velocity_topic_suffixes[task_index];
     auto * target_buffer = task.target_buffer.get();
     task.subscription = get_node()->create_subscription<geometry_msgs::msg::PoseStamped>(
       task.topic_name, rclcpp::QoS(1),
       [target_buffer](const std::shared_ptr<geometry_msgs::msg::PoseStamped> message) {
         target_buffer->writeFromNonRT(message);
       });
+    auto * velocity_target_buffer = task.velocity_target_buffer.get();
+    task.velocity_subscription =
+      get_node()->create_subscription<geometry_msgs::msg::TwistStamped>(
+      task.velocity_topic_name, rclcpp::QoS(1),
+      [velocity_target_buffer](
+        const std::shared_ptr<geometry_msgs::msg::TwistStamped> message) {
+        velocity_target_buffer->writeFromNonRT(message);
+      });
     RCLCPP_INFO(
-      get_node()->get_logger(), "Pose target for '%s': %s", task.frame_name.c_str(),
-      task.topic_name.c_str());
+      get_node()->get_logger(), "Pose/velocity targets for '%s': %s, %s",
+      task.frame_name.c_str(), task.topic_name.c_str(), task.velocity_topic_name.c_str());
   }
 
   // Subscribe to the posture target in the same controller-private topic hierarchy.
@@ -403,7 +484,13 @@ bool WholeBodyController::updateCurrentState(bool /*initialize*/) {
 void WholeBodyController::updatePoseTargets() {
   for (auto & task : tasks_) {
     const auto message = *task.target_buffer->readFromRT();
-    if (!message) {
+    const auto velocity_message = *task.velocity_target_buffer->readFromRT();
+    if (!message || !velocity_message) {
+      continue;
+    }
+    // Apply pose and twist atomically only when both samples belong to the same trajectory time.
+    if (message->header.stamp.sec != velocity_message->header.stamp.sec ||
+        message->header.stamp.nanosec != velocity_message->header.stamp.nanosec) {
       continue;
     }
     if (!params_.base_frame.empty() && !message->header.frame_id.empty() &&
@@ -426,8 +513,30 @@ void WholeBodyController::updatePoseTargets() {
         "Ignoring invalid pose target for '%s'.", task.frame_name.c_str());
       continue;
     }
+    // Cartesian velocity is an independent feed-forward command with the same world-aligned
+    // [linear XYZ, angular XYZ] convention used by the task Jacobian.
+    if (!params_.base_frame.empty() && !velocity_message->header.frame_id.empty() &&
+        velocity_message->header.frame_id != params_.base_frame) {
+      RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "Ignoring velocity target for '%s': frame '%s' is not configured base frame '%s'.",
+        task.frame_name.c_str(), velocity_message->header.frame_id.c_str(),
+        params_.base_frame.c_str());
+      continue;
+    }
+    const auto & twist = velocity_message->twist;
+    Vector6d target_velocity;
+    target_velocity << twist.linear.x, twist.linear.y, twist.linear.z,
+      twist.angular.x, twist.angular.y, twist.angular.z;
+    if (!target_velocity.allFinite()) {
+      RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "Ignoring invalid velocity target for '%s'.", task.frame_name.c_str());
+      continue;
+    }
     orientation.normalize();
     task.target_pose = pinocchio::SE3(orientation.toRotationMatrix(), position);
+    task.target_velocity = target_velocity;
   }
 }
 
@@ -506,8 +615,8 @@ void WholeBodyController::computeTaskCommands() {
     task.error = task.error.cwiseMin(error_clip_.segment<6>(row)).cwiseMax(
       -error_clip_.segment<6>(row));
     const Vector6d task_velocity = task.jacobian * dq_;
-    task.xddot_command = task_kp_.segment<6>(row).cwiseProduct(task.error) -
-      task_kd_.segment<6>(row).cwiseProduct(task_velocity);
+    task.xddot_command = task_kp_.segment<6>(row).cwiseProduct(task.error) +
+      task_kd_.segment<6>(row).cwiseProduct(task.target_velocity - task_velocity);
 
     stacked_jacobian_.block(row, 0, 6, model_.nv) = task.jacobian;
     stacked_jdot_qdot_.segment<6>(row) = task.jacobian_dot * dq_;
@@ -643,8 +752,52 @@ bool WholeBodyController::solveOptimization(Eigen::VectorXd & torque_solution) {
   if (problem.getPrimalSolution(motor_torque.data()) != qpOASES::SUCCESSFUL_RETURN) {
     return false;
   }
-  torque_solution = motor_torque.cast<double>() + nonlinear_effects_;
+  motion_torque_ = motor_torque.cast<double>();
+  feedforward_torque_ = motion_torque_ + nonlinear_effects_;
+  torque_solution = feedforward_torque_;
   return torque_solution.allFinite();
+}
+
+void WholeBodyController::publishTorqueDecomposition(
+  const rclcpp::Time & time, const rclcpp::Duration & period,
+  const Eigen::VectorXd & command_torque) {
+  if (!params_.decompose_commands.enabled) {
+    return;
+  }
+
+  decomposition_elapsed_ = decomposition_elapsed_ + period;
+  if (decomposition_elapsed_ < decomposition_interval_) {
+    return;
+  }
+  decomposition_elapsed_ = decomposition_elapsed_ - decomposition_interval_;
+  decomposition_elapsed_ = std::min(decomposition_elapsed_, decomposition_interval_);
+
+  // Publish every component from the same control cycle for direct comparison.
+  publishTorqueDiagnostic(motion_diagnostic_, time, motion_torque_);
+  publishTorqueDiagnostic(nonlinear_diagnostic_, time, nonlinear_effects_);
+  publishTorqueDiagnostic(feedforward_diagnostic_, time, feedforward_torque_);
+  publishTorqueDiagnostic(feedback_diagnostic_, time, feedback_torque_);
+  publishTorqueDiagnostic(command_diagnostic_, time, command_torque);
+}
+
+void WholeBodyController::publishTorqueDiagnostic(
+  TorqueDiagnostic & diagnostic, const rclcpp::Time & time,
+  const Eigen::VectorXd & torque) {
+  diagnostic.message.header.stamp = time;
+  for (std::size_t parameter_index = 0; parameter_index < params_.joints.size();
+       ++parameter_index) {
+    diagnostic.message.effort[parameter_index] =
+      torque[joint_velocity_indices_[parameter_index]];
+  }
+
+#if REALTIME_TOOLS_NEW_API
+  diagnostic.realtime_publisher->try_publish(diagnostic.message);
+#else
+  if (diagnostic.realtime_publisher->trylock()) {
+    diagnostic.realtime_publisher->msg_ = diagnostic.message;
+    diagnostic.realtime_publisher->unlockAndPublish();
+  }
+#endif
 }
 
 void WholeBodyController::writeTorqueCommand(const Eigen::VectorXd & torque) {

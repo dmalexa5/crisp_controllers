@@ -27,8 +27,9 @@ whole_body_controller:
       - left_fr3_hand_tcp
       - right_fr3_hand_tcp
     topics:
-      target_pose: [target_pose/left, target_pose/right]
-      target_joint: target_joint
+      target_pose: [~/target_pose/left, ~/target_pose/right]
+      target_velocity: [~/target_velocity/left, ~/target_velocity/right]
+      target_joint: ~/target_joint
     # Pinocchio's world-aligned coordinates are rooted at this URDF root link.
     base_frame: rail_link
 
@@ -46,6 +47,12 @@ whole_body_controller:
            10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 100.0]
       kd: [1.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0,
            0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0]
+
+    # Optional direct joint PD torque added after the WBC feed-forward solution.
+    feedback:
+      enabled: false
+      kp: [0.0]
+      kd: [0.0]
 
     dynamics:
       armature: [0.1]
@@ -72,6 +79,14 @@ whole_body_controller:
       output_torque: 0.5
     qp:
       max_working_set_recalculations: 100
+    decompose_commands:
+      enabled: true
+      publish_frequency: 100.0
+      motion_topic: ~/decompose_commands/motion
+      nonlinear_topic: ~/decompose_commands/nonlinear
+      feedforward_topic: ~/decompose_commands/feedforward
+      feedback_topic: ~/decompose_commands/feedback
+      command_topic: ~/decompose_commands/command
     stop_commands: false
     log:
       enabled: false

@@ -17,11 +17,15 @@ whole_body_controller:
   topics:
     target_pose:
       type: string_array
-      default_value: ["target_pose/left", "target_pose/right"]
+      default_value: ["~/target_pose/left", "~/target_pose/right"]
       description: "Ordered suffixes for private ~/target_pose/<suffix> subscriptions."
+    target_velocity:
+      type: string_array
+      default_value: ["~/target_velocity/left", "~/target_velocity/right"]
+      description: "Ordered Cartesian TwistStamped target topics for each end effector."
     target_joint:
       type: string
-      default_value: "target_joint"
+      default_value: "~/target_joint"
       description: "Suffix for the private ~/<suffix> posture target subscription."
 
   task:
@@ -49,6 +53,20 @@ whole_body_controller:
       type: double_array
       default_value: [1.0]
       description: "Joint posture velocity gains. Supply one or one per joint."
+
+  feedback:
+    enabled:
+      type: bool
+      default_value: false
+      description: "Add direct joint PD feedback torque to the WBC feed-forward torque."
+    kp:
+      type: double_array
+      default_value: [0.0]
+      description: "Direct joint position feedback gains. Supply one or one per joint."
+    kd:
+      type: double_array
+      default_value: [0.0]
+      description: "Direct joint velocity feedback gains. Supply one or one per joint."
 
   dynamics:
     armature:
@@ -141,6 +159,38 @@ whole_body_controller:
       description: "Maximum qpOASES working-set recalculations allowed per control update."
       validation:
         gt<>: [0]
+
+  decompose_commands:
+    enabled:
+      type: bool
+      default_value: false
+      description: "Publish nonblocking torque-decomposition diagnostics."
+    publish_frequency:
+      type: double
+      default_value: 100.0
+      description: "Torque-decomposition publication frequency in Hz."
+      validation:
+        gt<>: [0.0]
+    motion_topic:
+      type: string
+      default_value: "~/decompose_commands/motion"
+      description: "JointState topic containing the QP motor/motion torque."
+    nonlinear_topic:
+      type: string
+      default_value: "~/decompose_commands/nonlinear"
+      description: "JointState topic containing Coriolis, gravity, and damping compensation torque."
+    feedforward_topic:
+      type: string
+      default_value: "~/decompose_commands/feedforward"
+      description: "JointState topic containing motion plus nonlinear WBC feed-forward torque."
+    feedback_topic:
+      type: string
+      default_value: "~/decompose_commands/feedback"
+      description: "JointState topic containing direct joint PD feedback torque."
+    command_topic:
+      type: string
+      default_value: "~/decompose_commands/command"
+      description: "JointState topic containing the final filtered, rate-limited hardware command."
 
   stop_commands:
     type: bool

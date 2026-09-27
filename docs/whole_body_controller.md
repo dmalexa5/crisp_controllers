@@ -32,8 +32,9 @@ whole_body_controller:
   ros__parameters:
     end_effector_frames: [left_tcp, right_tcp]
     topics:
-      target_pose: [left, right]
-      target_joint: target_joint
+      target_pose: [~/target_pose/left, ~/target_pose/right]
+      target_velocity: [~/target_velocity/left, ~/target_velocity/right]
+      target_joint: ~/target_joint
 ```
 
 For a controller named `whole_body_controller`, these settings create:
@@ -41,12 +42,19 @@ For a controller named `whole_body_controller`, these settings create:
 ```text
 /whole_body_controller/target_pose/left   geometry_msgs/msg/PoseStamped
 /whole_body_controller/target_pose/right  geometry_msgs/msg/PoseStamped
+/whole_body_controller/target_velocity/left   geometry_msgs/msg/TwistStamped
+/whole_body_controller/target_velocity/right  geometry_msgs/msg/TwistStamped
 /whole_body_controller/target_joint       sensor_msgs/msg/JointState
 ```
 
-`topics.target_pose` and `end_effector_frames` are ordered lists with the same length. A pose target may use an empty `header.frame_id`, or it must equal `base_frame` when `base_frame` is configured. The controller does not transform targets between frames.
+`topics.target_pose`, `topics.target_velocity`, and `end_effector_frames` are ordered lists with
+the same length. Each pose and twist pair must have identical timestamps. A target may use an
+empty `header.frame_id`, or it must equal `base_frame` when `base_frame` is configured. The
+controller does not transform targets between frames. The `~/` prefix makes these topics private
+to the controller node; omitting it resolves them in the node namespace instead. Its Cartesian acceleration reference is
+`xddot_d = Kp * pose_error + Kd * (xdot_d - J(q) * qdot)`.
 
-On activation, every Cartesian target and the posture target are initialized to the measured robot state. Consequently, publishing neither target type produces a hold command rather than motion toward a configuration from the YAML file. Named `JointState` posture commands may update a subset of controlled joints; unnamed commands follow the configured `joints` order.
+On activation, every Cartesian target and the posture target are initialized to the measured robot state. Consequently, publishing neither target type produces a hold command rather than motion toward a configuration from the YAML file. Named `JointState` posture commands may update a subset of controlled joints; unnamed commands follow the configured `joints` order. The posture command consumes both `JointState.position` and `JointState.velocity`.
 
 ## Dynamics
 
@@ -93,10 +101,10 @@ For all end effectors, the controller stacks world-aligned Jacobians into $\math
 $$
 \ddot{\mathbf{x}}_{\text{cmd}}
 = \mathbf{K}_{p,x}\mathbf{e}
-- \mathbf{K}_{d,x}\mathbf{J}\dot{\mathbf{q}}.
++ \mathbf{K}_{d,x}(\dot{\mathbf{x}}_{\text{target}}-\mathbf{J}\dot{\mathbf{q}}).
 $$
 
-The current pose command contains no desired twist or acceleration feed-forward. `task.error_clip` limits the three translational and three rotational error components before applying the gains. A task axis whose proportional and derivative gains are both zero is removed from the stacked QP task.
+`task.error_clip` limits the three translational and three rotational error components before applying the gains. A task axis whose proportional and derivative gains are both zero is removed from the stacked QP task.
 
 The secondary posture reference is
 
@@ -148,7 +156,33 @@ $$
 \leq \boldsymbol{\tau}_{\max}-\mathbf{h}.
 $$
 
-The final command is $\boldsymbol{\tau}=\boldsymbol{\tau}_m+\mathbf{h}$, followed by torque-rate limiting, output filtering, and a final torque clamp.
+The WBC feed-forward command is $\boldsymbol{\tau}_{\text{ff}}=\boldsymbol{\tau}_m+\mathbf{h}$.
+
+## Optional direct joint feedback
+
+When `feedback.enabled` is true, the controller adds direct joint PD feedback:
+
+$$
+\boldsymbol{\tau}_{\text{fb}} =
+\mathbf{K}_{p,\text{fb}}(\mathbf{q}_{\text{target}}-\mathbf{q})+
+\mathbf{K}_{d,\text{fb}}(\dot{\mathbf{q}}_{\text{target}}-\dot{\mathbf{q}}).
+$$
+
+The raw total is $\boldsymbol{\tau}_{\text{ff}}+\boldsymbol{\tau}_{\text{fb}}$. Torque-rate limiting, output filtering, and the final torque clamp are applied to that sum. These feedback gains are torque gains and are independent of `posture.kp` and `posture.kd`, which create an acceleration reference inside the QP. Direct feedback is not nullspace-projected and can therefore compete with Cartesian tracking.
+
+## Torque decomposition diagnostics
+
+Set `decompose_commands.enabled: true` to publish `sensor_msgs/msg/JointState` messages. Joint names are in `name`, and each torque vector is in `effort`:
+
+| Private topic | Published torque |
+| --- | --- |
+| `~/decompose_commands/motion` | QP motor torque $\boldsymbol{\tau}_m$ |
+| `~/decompose_commands/nonlinear` | Model compensation $\mathbf{h}$ |
+| `~/decompose_commands/feedforward` | $\boldsymbol{\tau}_m+\mathbf{h}$ |
+| `~/decompose_commands/feedback` | Direct joint PD feedback |
+| `~/decompose_commands/command` | Final rate-limited, filtered, and clamped hardware command |
+
+All five messages from a control cycle have the same timestamp. Publication uses nonblocking real-time publishers and is rate-limited by `decompose_commands.publish_frequency`.
 
 ## Complete configuration example
 
@@ -160,8 +194,9 @@ whole_body_controller:
     base_frame: base_link
 
     topics:
-      target_pose: [tool]
-      target_joint: target_joint
+      target_pose: [~/target_pose/tool]
+      target_velocity: [~/target_velocity/tool]
+      target_joint: ~/target_joint
 
     task:
       kp: [400.0, 400.0, 400.0, 40.0, 40.0, 40.0]
@@ -171,6 +206,11 @@ whole_body_controller:
     posture:
       kp: [10.0]
       kd: [1.0]
+
+    feedback:
+      enabled: false
+      kp: [0.0]
+      kd: [0.0]
 
     dynamics:
       armature: [0.0]
@@ -195,6 +235,14 @@ whole_body_controller:
       output_torque: 0.5
     qp:
       max_working_set_recalculations: 200
+    decompose_commands:
+      enabled: false
+      publish_frequency: 100.0
+      motion_topic: ~/decompose_commands/motion
+      nonlinear_topic: ~/decompose_commands/nonlinear
+      feedforward_topic: ~/decompose_commands/feedforward
+      feedback_topic: ~/decompose_commands/feedback
+      command_topic: ~/decompose_commands/command
     stop_commands: false
     log:
       enabled: false
@@ -208,10 +256,13 @@ whole_body_controller:
 | `end_effector_frames` | nonempty string array | Ordered Pinocchio frames for independent 6D tasks. |
 | `base_frame` | string | Expected pose-message frame; empty disables validation. |
 | `topics.target_pose` | one suffix per end effector | Creates `~/target_pose/<suffix>`. Values must be unique and nonempty. |
+| `topics.target_velocity` | one topic per end effector | Cartesian velocity target paired with each pose target. |
 | `topics.target_joint` | nonempty suffix | Creates `~/<suffix>` for optional posture commands. |
 | `task.kp`, `task.kd` | 6 values or 6 per task | Cartesian acceleration gains in `[x,y,z,rx,ry,rz]` order. |
 | `task.error_clip` | 6 nonnegative values | Shared absolute Cartesian error limits for every task. |
 | `posture.kp`, `posture.kd` | 1 value or one per joint | Joint-posture acceleration gains. |
+| `feedback.enabled` | boolean | Adds direct joint PD torque to the WBC feed-forward torque. |
+| `feedback.kp`, `feedback.kd` | 1 value or one per joint | Direct joint torque-feedback gains. |
 | `dynamics.armature` | 1 value or one per joint | Nonnegative diagonal inertia added to $\mathbf{M}$. |
 | `dynamics.joint_damping` | 1 value or one per joint | Nonnegative viscous damping coefficient. |
 | `dynamics.use_coriolis` | boolean | Enables $\mathbf{C}\dot{\mathbf{q}}$. |
@@ -227,6 +278,9 @@ whole_body_controller:
 | `filter.target_pose` | $[0,1]$ | Previous-sample weight for pose filtering; zero means no filtering. |
 | `filter.output_torque` | $[0,1]$ | Previous-sample weight for torque filtering; zero means no filtering. |
 | `qp.max_working_set_recalculations` | positive integer | qpOASES iteration budget per update. |
+| `decompose_commands.enabled` | boolean | Enables torque-component diagnostic topics. |
+| `decompose_commands.publish_frequency` | positive Hz | Diagnostic publication rate. |
+| `decompose_commands.*_topic` | nonempty topic name | Topics for motion, nonlinear, feed-forward, feedback, and final command torque. |
 | `stop_commands` | boolean | Computes normally but suppresses hardware command writes. |
 | `log.enabled` | boolean | Enables throttled torque and first-task-error logging. |
 
@@ -238,4 +292,3 @@ whole_body_controller:
 4. Start with conservative task and posture gains, explicit torque limits, and torque-rate limiting.
 5. Command a hold pose before trying moving trajectories.
 6. Enable one Cartesian task or axis at a time, then add posture control and additional end effectors.
-

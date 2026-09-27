@@ -12,6 +12,7 @@
 #include <Eigen/Dense>  // NOLINT(build/include_order)
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/spatial/se3.hpp>
@@ -27,6 +28,7 @@
 #endif
 
 #include <realtime_tools/realtime_buffer.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
@@ -60,18 +62,31 @@ public:
 
 private:
   using Vector6d = Eigen::Matrix<double, 6, 1>;
+  using JointStateRealtimePublisher =
+    realtime_tools::RealtimePublisher<sensor_msgs::msg::JointState>;
+
+  struct TorqueDiagnostic {
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher;
+    std::shared_ptr<JointStateRealtimePublisher> realtime_publisher;
+    sensor_msgs::msg::JointState message;
+  };
 
   struct EndEffectorTask {
     std::string frame_name;
     std::string topic_name;
+    std::string velocity_topic_name;
     pinocchio::FrameIndex frame_id{0};
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subscription;
     std::unique_ptr<realtime_tools::RealtimeBuffer<
       std::shared_ptr<geometry_msgs::msg::PoseStamped>>> target_buffer;
+    rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_subscription;
+    std::unique_ptr<realtime_tools::RealtimeBuffer<
+      std::shared_ptr<geometry_msgs::msg::TwistStamped>>> velocity_target_buffer;
 
     pinocchio::SE3 current_pose{pinocchio::SE3::Identity()};
     pinocchio::SE3 target_pose{pinocchio::SE3::Identity()};
     pinocchio::SE3 desired_pose{pinocchio::SE3::Identity()};
+    Vector6d target_velocity{Vector6d::Zero()};
     Eigen::MatrixXd jacobian;
     Eigen::MatrixXd jacobian_dot;
     Vector6d error{Vector6d::Zero()};
@@ -81,12 +96,19 @@ private:
   bool configureModel(const std::string & robot_description);
   bool configureParameters();
   bool configureSubscriptions();
+  bool configureTorqueDiagnostics();
   bool updateCurrentState(bool initialize = false);
   void updatePoseTargets();
   bool updateModelAndTasks();
   void computeTaskCommands();
   void computePostureReference();
   bool solveOptimization(Eigen::VectorXd & torque_solution);
+  void publishTorqueDecomposition(
+    const rclcpp::Time & time, const rclcpp::Duration & period,
+    const Eigen::VectorXd & command_torque);
+  void publishTorqueDiagnostic(
+    TorqueDiagnostic & diagnostic, const rclcpp::Time & time,
+    const Eigen::VectorXd & torque);
   void writeTorqueCommand(const Eigen::VectorXd & torque);
   void holdPreviousCommand();
 
@@ -116,6 +138,8 @@ private:
   Eigen::VectorXd qddot_reference_;
   Eigen::VectorXd posture_kp_;
   Eigen::VectorXd posture_kd_;
+  Eigen::VectorXd feedback_kp_;
+  Eigen::VectorXd feedback_kd_;
   Eigen::VectorXd joint_damping_;
 
   Eigen::VectorXd task_kp_;
@@ -128,10 +152,21 @@ private:
   Eigen::MatrixXd mass_matrix_;
   Eigen::MatrixXd mass_matrix_inverse_;
   Eigen::MatrixXd torque_nullspace_projection_;
+  Eigen::VectorXd motion_torque_;
   Eigen::VectorXd nonlinear_effects_;
+  Eigen::VectorXd feedforward_torque_;
+  Eigen::VectorXd feedback_torque_;
   Eigen::VectorXd torque_min_;
   Eigen::VectorXd torque_max_;
   Eigen::VectorXd previous_torque_;
+
+  TorqueDiagnostic motion_diagnostic_;
+  TorqueDiagnostic nonlinear_diagnostic_;
+  TorqueDiagnostic feedforward_diagnostic_;
+  TorqueDiagnostic feedback_diagnostic_;
+  TorqueDiagnostic command_diagnostic_;
+  rclcpp::Duration decomposition_elapsed_{0, 0};
+  rclcpp::Duration decomposition_interval_{0, 0};
 };
 
 }  // namespace crisp_controllers
