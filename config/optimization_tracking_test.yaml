@@ -8,10 +8,11 @@ optimization_tracking_test_node:
     left:
       frame: left_fr3_hand_tcp
       topic: /dual_arm_controller_wbc/target_pose/left
+      velocity_topic: /dual_arm_controller_wbc/target_velocity/left
       motion_type: linear
-      linear_direction: [1.0, 1.0, 0.0]
+      linear_direction: [1.0, 0.0, 0.0]
       linear_amplitude: 0.15
-      linear_speed: 0.3
+      linear_speed: 0.2
       circle_axis_u: [1.0, 0.0, 0.0]
       circle_axis_v: [0.0, 1.0, 0.0]
       circle_radius: 0.05
@@ -20,11 +21,12 @@ optimization_tracking_test_node:
     right:
       frame: right_fr3_hand_tcp
       topic: /dual_arm_controller_wbc/target_pose/right
+      # velocity_topic: /dual_arm_controller_wbc/target_velocity/right
       motion_type: circular
-      linear_direction: [0.0, -1.0, 0.0]
-      linear_amplitude: 0.05
-      linear_speed: 0.5
+      linear_direction: [1.0, 0.0, 0.0]
+      linear_amplitude: 0.15
+      linear_speed: 0.1
       circle_axis_u: [1.0, 0.0, 0.0]
       circle_axis_v: [0.0, 1.0, 0.0]
-      circle_radius: 0.2
-      circle_speed: 0.3
+      circle_radius: 0.1
+      circle_speed: 0.15

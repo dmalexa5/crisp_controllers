@@ -11,6 +11,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <rclcpp/create_timer.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <tf2/exceptions.h>
@@ -34,14 +35,22 @@ public:
     }
 
     // Load one independently configurable trajectory for each controller task.
-    left_ = loadArmMotion("left", "left_fr3_hand_tcp", "whole_body_controller/target_pose/left", "linear");
-    right_ = loadArmMotion("right", "right_fr3_hand_tcp", "whole_body_controller/target_pose/right", "circular");
+    left_ = loadArmMotion(
+      "left", "left_fr3_hand_tcp", "whole_body_controller/target_pose/left",
+      "whole_body_controller/target_velocity/left", "linear");
+    right_ = loadArmMotion(
+      "right", "right_fr3_hand_tcp", "whole_body_controller/target_pose/right",
+      "whole_body_controller/target_velocity/right", "circular");
     validateArmMotion(left_);
     validateArmMotion(right_);
 
     left_.publisher = create_publisher<geometry_msgs::msg::PoseStamped>(left_.topic, rclcpp::QoS(1));
     right_.publisher =
       create_publisher<geometry_msgs::msg::PoseStamped>(right_.topic, rclcpp::QoS(1));
+    left_.velocity_publisher =
+      create_publisher<geometry_msgs::msg::TwistStamped>(left_.velocity_topic, rclcpp::QoS(1));
+    right_.velocity_publisher =
+      create_publisher<geometry_msgs::msg::TwistStamped>(right_.velocity_topic, rclcpp::QoS(1));
 
     const auto period = rclcpp::Duration::from_seconds(1.0 / publish_rate_);
     timer_ = rclcpp::create_timer(
@@ -58,6 +67,7 @@ private:
     std::string name;
     std::string frame;
     std::string topic;
+    std::string velocity_topic;
     std::string motion_type;
     double linear_amplitude{0.05};
     double linear_speed{0.5};
@@ -68,15 +78,19 @@ private:
     std::array<double, 3> circle_axis_v{0.0, 1.0, 0.0};
     geometry_msgs::msg::Pose home_pose;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr publisher;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_publisher;
   };
 
   ArmMotion loadArmMotion(
     const std::string & name, const std::string & default_frame,
-    const std::string & default_topic, const std::string & default_motion) {
+    const std::string & default_topic, const std::string & default_velocity_topic,
+    const std::string & default_motion) {
     ArmMotion motion;
     motion.name = name;
     motion.frame = declare_parameter<std::string>(name + ".frame", default_frame);
     motion.topic = declare_parameter<std::string>(name + ".topic", default_topic);
+    motion.velocity_topic =
+      declare_parameter<std::string>(name + ".velocity_topic", default_velocity_topic);
     motion.motion_type = declare_parameter<std::string>(name + ".motion_type", default_motion);
     motion.linear_amplitude = declare_parameter<double>(name + ".linear_amplitude", 0.05);
     motion.linear_speed = declare_parameter<double>(name + ".linear_speed", 0.5);
@@ -180,9 +194,10 @@ private:
     return pose;
   }
 
-  geometry_msgs::msg::PoseStamped makeTarget(const ArmMotion & motion, double motion_time) const {
+  geometry_msgs::msg::PoseStamped makeTarget(
+    const ArmMotion & motion, double motion_time, const rclcpp::Time & stamp) const {
     geometry_msgs::msg::PoseStamped target;
-    target.header.stamp = now();
+    target.header.stamp = stamp;
     target.header.frame_id = base_frame_;
     target.pose = motion.home_pose;
 
@@ -206,6 +221,36 @@ private:
     return target;
   }
 
+  // Analytic time derivative of makeTarget(); zero while holding before the motion starts.
+  geometry_msgs::msg::TwistStamped makeVelocityTarget(
+    const ArmMotion & motion, double motion_time, bool moving, const rclcpp::Time & stamp) const {
+    geometry_msgs::msg::TwistStamped target;
+    target.header.stamp = stamp;
+    target.header.frame_id = base_frame_;
+    if (!moving) {
+      return target;
+    }
+
+    if (motion.motion_type == "linear") {
+      const double speed = motion.linear_amplitude * motion.linear_speed *
+        std::cos(motion.linear_speed * motion_time);
+      target.twist.linear.x = speed * motion.linear_direction[0];
+      target.twist.linear.y = speed * motion.linear_direction[1];
+      target.twist.linear.z = speed * motion.linear_direction[2];
+    } else if (motion.motion_type == "circular") {
+      const double angle = motion.circle_speed * motion_time;
+      const double velocity_u = -motion.circle_radius * motion.circle_speed * std::sin(angle);
+      const double velocity_v = motion.circle_radius * motion.circle_speed * std::cos(angle);
+      target.twist.linear.x =
+        velocity_u * motion.circle_axis_u[0] + velocity_v * motion.circle_axis_v[0];
+      target.twist.linear.y =
+        velocity_u * motion.circle_axis_u[1] + velocity_v * motion.circle_axis_v[1];
+      target.twist.linear.z =
+        velocity_u * motion.circle_axis_u[2] + velocity_v * motion.circle_axis_v[2];
+    }
+    return target;
+  }
+
   void onTimer() {
     // Wait for both live poses so the first published targets equal the current poses.
     if (!initialized_ && !initializeHomePoses()) {
@@ -213,10 +258,16 @@ private:
     }
 
     // Publish a hold during startup, then advance both trajectories on the ROS clock.
-    const double elapsed = (now() - trajectory_start_time_).seconds();
+    // The controller pairs pose and twist by identical stamps, so both share one timestamp.
+    const rclcpp::Time stamp = now();
+    const double elapsed = (stamp - trajectory_start_time_).seconds();
     const double motion_time = std::max(0.0, elapsed - startup_delay_);
-    left_.publisher->publish(makeTarget(left_, motion_time));
-    right_.publisher->publish(makeTarget(right_, motion_time));
+    const bool moving = elapsed > startup_delay_;
+    for (ArmMotion * motion : {&left_, &right_}) {
+      motion->publisher->publish(makeTarget(*motion, motion_time, stamp));
+      motion->velocity_publisher->publish(
+        makeVelocityTarget(*motion, motion_time, moving, stamp));
+    }
   }
 
   std::string base_frame_;

@@ -88,7 +88,6 @@ controller_interface::return_type WholeBodyController::update(
   computePostureReference();
   Eigen::VectorXd optimized_torque;
   if (!solveOptimization(optimized_torque)) {
-    RCLCPP_INFO(get_node()->get_logger(), "Cannot solve");
     RCLCPP_ERROR_THROTTLE(
       get_node()->get_logger(), *get_node()->get_clock(), 1000,
       "Operational-space QP failed; holding the previous torque command.");
