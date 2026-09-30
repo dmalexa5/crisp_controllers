@@ -1,7 +1,7 @@
 optimization_tracking_test_node:
   ros__parameters:
     base_frame: rail_link
-    publish_rate: 200.0
+    publish_rate: 500.0
     startup_delay: 2.0
 
     # The node captures both home poses from TF before starting motion.
@@ -9,6 +9,8 @@ optimization_tracking_test_node:
       frame: left_fr3_hand_tcp
       topic: /dual_arm_controller_wbc/target_pose/left
       velocity_topic: /dual_arm_controller_wbc/target_velocity/left
+      current_pose_topic: /dual_arm_controller_wbc/current_pose/left
+      delayed_target_topic: /dual_arm_controller_wbc/delayed_target_pose/left
       motion_type: linear
       linear_direction: [1.0, 0.0, 0.0]
       linear_amplitude: 0.15
@@ -21,7 +23,9 @@ optimization_tracking_test_node:
     right:
       frame: right_fr3_hand_tcp
       topic: /dual_arm_controller_wbc/target_pose/right
-      # velocity_topic: /dual_arm_controller_wbc/target_velocity/right
+      delayed_target_topic: /dual_arm_controller_wbc/delayed_target_pose/right
+      current_pose_topic: /dual_arm_controller_wbc/current_pose/right
+      velocity_topic: /dual_arm_controller_wbc/target_velocity/right
       motion_type: circular
       linear_direction: [1.0, 0.0, 0.0]
       linear_amplitude: 0.15

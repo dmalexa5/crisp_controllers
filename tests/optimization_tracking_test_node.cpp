@@ -37,10 +37,10 @@ public:
     // Load one independently configurable trajectory for each controller task.
     left_ = loadArmMotion(
       "left", "left_fr3_hand_tcp", "whole_body_controller/target_pose/left",
-      "whole_body_controller/target_velocity/left", "linear");
+      "whole_body_controller/target_velocity/left", "~/current_pose/left", "linear");
     right_ = loadArmMotion(
       "right", "right_fr3_hand_tcp", "whole_body_controller/target_pose/right",
-      "whole_body_controller/target_velocity/right", "circular");
+      "whole_body_controller/target_velocity/right", "~/current_pose/right", "circular");
     validateArmMotion(left_);
     validateArmMotion(right_);
 
@@ -51,6 +51,14 @@ public:
       create_publisher<geometry_msgs::msg::TwistStamped>(left_.velocity_topic, rclcpp::QoS(1));
     right_.velocity_publisher =
       create_publisher<geometry_msgs::msg::TwistStamped>(right_.velocity_topic, rclcpp::QoS(1));
+    left_.current_pose_publisher =
+      create_publisher<geometry_msgs::msg::PoseStamped>(left_.current_pose_topic, rclcpp::QoS(1));
+    right_.current_pose_publisher =
+      create_publisher<geometry_msgs::msg::PoseStamped>(right_.current_pose_topic, rclcpp::QoS(1));
+    left_.delayed_target_publisher =
+      create_publisher<geometry_msgs::msg::PoseStamped>(left_.delayed_target_topic, rclcpp::QoS(1));
+    right_.delayed_target_publisher =
+      create_publisher<geometry_msgs::msg::PoseStamped>(right_.delayed_target_topic, rclcpp::QoS(1));
 
     const auto period = rclcpp::Duration::from_seconds(1.0 / publish_rate_);
     timer_ = rclcpp::create_timer(
@@ -68,6 +76,8 @@ private:
     std::string frame;
     std::string topic;
     std::string velocity_topic;
+    std::string current_pose_topic;
+    std::string delayed_target_topic;
     std::string motion_type;
     double linear_amplitude{0.05};
     double linear_speed{0.5};
@@ -77,20 +87,27 @@ private:
     std::array<double, 3> circle_axis_u{1.0, 0.0, 0.0};
     std::array<double, 3> circle_axis_v{0.0, 1.0, 0.0};
     geometry_msgs::msg::Pose home_pose;
+    geometry_msgs::msg::PoseStamped previous_target_pose;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr publisher;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_publisher;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr current_pose_publisher;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr delayed_target_publisher;
   };
 
   ArmMotion loadArmMotion(
     const std::string & name, const std::string & default_frame,
     const std::string & default_topic, const std::string & default_velocity_topic,
-    const std::string & default_motion) {
+    const std::string & default_current_pose_topic, const std::string & default_motion) {
     ArmMotion motion;
     motion.name = name;
     motion.frame = declare_parameter<std::string>(name + ".frame", default_frame);
     motion.topic = declare_parameter<std::string>(name + ".topic", default_topic);
     motion.velocity_topic =
       declare_parameter<std::string>(name + ".velocity_topic", default_velocity_topic);
+    motion.current_pose_topic =
+      declare_parameter<std::string>(name + ".current_pose_topic", default_current_pose_topic);
+    motion.delayed_target_topic = declare_parameter<std::string>(
+      name + ".delayed_target_topic", "~/delayed_target_pose/" + name);
     motion.motion_type = declare_parameter<std::string>(name + ".motion_type", default_motion);
     motion.linear_amplitude = declare_parameter<double>(name + ".linear_amplitude", 0.05);
     motion.linear_speed = declare_parameter<double>(name + ".linear_speed", 0.5);
@@ -169,6 +186,10 @@ private:
         tf_buffer_->lookupTransform(base_frame_, right_.frame, tf2::TimePointZero);
       left_.home_pose = transformToPose(left_transform);
       right_.home_pose = transformToPose(right_transform);
+      left_.previous_target_pose.header.frame_id = base_frame_;
+      left_.previous_target_pose.pose = left_.home_pose;
+      right_.previous_target_pose.header.frame_id = base_frame_;
+      right_.previous_target_pose.pose = right_.home_pose;
       trajectory_start_time_ = now();
       initialized_ = true;
       RCLCPP_INFO(
@@ -192,6 +213,21 @@ private:
     pose.position.z = transform.transform.translation.z;
     pose.orientation = transform.transform.rotation;
     return pose;
+  }
+
+  void publishCurrentPose(ArmMotion & motion) {
+    try {
+      const auto transform =
+        tf_buffer_->lookupTransform(base_frame_, motion.frame, tf2::TimePointZero);
+      geometry_msgs::msg::PoseStamped current_pose;
+      current_pose.header = transform.header;
+      current_pose.pose = transformToPose(transform);
+      motion.current_pose_publisher->publish(current_pose);
+    } catch (const tf2::TransformException & exception) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "Cannot publish current pose for '%s': %s",
+        motion.name.c_str(), exception.what());
+    }
   }
 
   geometry_msgs::msg::PoseStamped makeTarget(
@@ -264,9 +300,15 @@ private:
     const double motion_time = std::max(0.0, elapsed - startup_delay_);
     const bool moving = elapsed > startup_delay_;
     for (ArmMotion * motion : {&left_, &right_}) {
-      motion->publisher->publish(makeTarget(*motion, motion_time, stamp));
+      publishCurrentPose(*motion);
+      const auto target = makeTarget(*motion, motion_time, stamp);
+      auto delayed_target = motion->previous_target_pose;
+      delayed_target.header.stamp = stamp;
+      motion->delayed_target_publisher->publish(delayed_target);
+      motion->publisher->publish(target);
       motion->velocity_publisher->publish(
         makeVelocityTarget(*motion, motion_time, moving, stamp));
+      motion->previous_target_pose = target;
     }
   }
 
