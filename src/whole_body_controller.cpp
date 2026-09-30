@@ -190,8 +190,8 @@ CallbackReturn WholeBodyController::on_activate(
     return CallbackReturn::ERROR;
   }
 
-  // Start from a Cartesian and joint hold to avoid a command discontinuity.
-  q_target_ = q_;
+  // Hold the current Cartesian poses while using the configured nominal joint posture.
+  q_target_ = nominal_posture_;
   dq_target_.setZero();
   motion_torque_.setZero();
   feedforward_torque_.setZero();
@@ -207,7 +207,8 @@ CallbackReturn WholeBodyController::on_activate(
     task.velocity_target_buffer->writeFromNonRT(nullptr);
   }
 
-  RCLCPP_INFO(get_node()->get_logger(), "Whole-body controller activated in hold mode.");
+  RCLCPP_INFO(
+    get_node()->get_logger(), "Whole-body controller activated with nominal posture fallback.");
   return CallbackReturn::SUCCESS;
 }
 
@@ -305,7 +306,8 @@ bool WholeBodyController::configureParameters() {
 
   // Expand scalar/shared gains into vectors in Pinocchio velocity order.
   Eigen::VectorXd armature;
-  if (!expandJointParameter(params_.posture.kp, "posture.kp", posture_kp_) ||
+  if (!expandJointPositionParameter(params_.posture.nominal, "posture.nominal", nominal_posture_) ||
+      !expandJointParameter(params_.posture.kp, "posture.kp", posture_kp_) ||
       !expandJointParameter(params_.posture.kd, "posture.kd", posture_kd_) ||
       !expandJointParameter(params_.feedback.kp, "feedback.kp", feedback_kp_) ||
       !expandJointParameter(params_.feedback.kd, "feedback.kd", feedback_kd_) ||
@@ -398,7 +400,10 @@ bool WholeBodyController::configureTorqueDiagnostics() {
 bool WholeBodyController::configureSubscriptions() {
   // Verify the ordered suffix used for each private task-space target topic.
   const auto & pose_topic_suffixes = params_.topics.target_pose;
-  const auto & velocity_topic_suffixes = params_.topics.target_velocity;
+  auto velocity_topic_suffixes = params_.topics.target_velocity;
+  if (velocity_topic_suffixes.empty()) {
+    velocity_topic_suffixes.resize(tasks_.size());
+  }
   if (pose_topic_suffixes.size() != tasks_.size()) {
     RCLCPP_ERROR(
       get_node()->get_logger(), "topics.target_pose must match end_effector_frames.");
@@ -417,13 +422,13 @@ bool WholeBodyController::configureSubscriptions() {
       get_node()->get_logger(), "topics.target_pose must contain unique non-empty suffixes.");
     return false;
   }
-  const std::unordered_set<std::string> unique_velocity_suffixes(
-    velocity_topic_suffixes.begin(), velocity_topic_suffixes.end());
-  if (unique_velocity_suffixes.size() != velocity_topic_suffixes.size() ||
-      unique_velocity_suffixes.count("") != 0U) {
-    RCLCPP_ERROR(
-      get_node()->get_logger(), "topics.target_velocity must contain unique non-empty suffixes.");
-    return false;
+  std::unordered_set<std::string> unique_velocity_suffixes;
+  for (const auto & topic : velocity_topic_suffixes) {
+    if (!topic.empty() && !unique_velocity_suffixes.insert(topic).second) {
+      RCLCPP_ERROR(
+        get_node()->get_logger(), "topics.target_velocity contains duplicate non-empty topics.");
+      return false;
+    }
   }
 
   // Give every task an independent realtime buffer and PoseStamped subscription.
@@ -437,17 +442,23 @@ bool WholeBodyController::configureSubscriptions() {
       [target_buffer](const std::shared_ptr<geometry_msgs::msg::PoseStamped> message) {
         target_buffer->writeFromNonRT(message);
       });
-    auto * velocity_target_buffer = task.velocity_target_buffer.get();
-    task.velocity_subscription =
-      get_node()->create_subscription<geometry_msgs::msg::TwistStamped>(
-      task.velocity_topic_name, rclcpp::QoS(1),
-      [velocity_target_buffer](
-        const std::shared_ptr<geometry_msgs::msg::TwistStamped> message) {
-        velocity_target_buffer->writeFromNonRT(message);
-      });
-    RCLCPP_INFO(
-      get_node()->get_logger(), "Pose/velocity targets for '%s': %s, %s",
-      task.frame_name.c_str(), task.topic_name.c_str(), task.velocity_topic_name.c_str());
+    if (task.velocity_topic_name.empty()) {
+      RCLCPP_INFO(
+        get_node()->get_logger(), "Pose target for '%s': %s; target velocity defaults to zero.",
+        task.frame_name.c_str(), task.topic_name.c_str());
+    } else {
+      auto * velocity_target_buffer = task.velocity_target_buffer.get();
+      task.velocity_subscription =
+        get_node()->create_subscription<geometry_msgs::msg::TwistStamped>(
+        task.velocity_topic_name, rclcpp::QoS(1),
+        [velocity_target_buffer](
+          const std::shared_ptr<geometry_msgs::msg::TwistStamped> message) {
+          velocity_target_buffer->writeFromNonRT(message);
+        });
+      RCLCPP_INFO(
+        get_node()->get_logger(), "Pose/velocity targets for '%s': %s, %s",
+        task.frame_name.c_str(), task.topic_name.c_str(), task.velocity_topic_name.c_str());
+    }
   }
 
   // Subscribe to the posture target in the same controller-private topic hierarchy.
@@ -491,12 +502,7 @@ void WholeBodyController::updatePoseTargets() {
   for (auto & task : tasks_) {
     const auto message = *task.target_buffer->readFromRT();
     const auto velocity_message = *task.velocity_target_buffer->readFromRT();
-    if (!message || !velocity_message) {
-      continue;
-    }
-    // Apply pose and twist atomically only when both samples belong to the same trajectory time.
-    if (message->header.stamp.sec != velocity_message->header.stamp.sec ||
-        message->header.stamp.nanosec != velocity_message->header.stamp.nanosec) {
+    if (!message) {
       continue;
     }
     if (!params_.base_frame.empty() && !message->header.frame_id.empty() &&
@@ -519,26 +525,29 @@ void WholeBodyController::updatePoseTargets() {
         "Ignoring invalid pose target for '%s'.", task.frame_name.c_str());
       continue;
     }
-    // Cartesian velocity is an independent feed-forward command with the same world-aligned
-    // [linear XYZ, angular XYZ] convention used by the task Jacobian.
-    if (!params_.base_frame.empty() && !velocity_message->header.frame_id.empty() &&
-        velocity_message->header.frame_id != params_.base_frame) {
-      RCLCPP_WARN_THROTTLE(
-        get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        "Ignoring velocity target for '%s': frame '%s' is not configured base frame '%s'.",
-        task.frame_name.c_str(), velocity_message->header.frame_id.c_str(),
-        params_.base_frame.c_str());
-      continue;
-    }
-    const auto & twist = velocity_message->twist;
-    Vector6d target_velocity;
-    target_velocity << twist.linear.x, twist.linear.y, twist.linear.z,
-      twist.angular.x, twist.angular.y, twist.angular.z;
-    if (!target_velocity.allFinite()) {
-      RCLCPP_WARN_THROTTLE(
-        get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        "Ignoring invalid velocity target for '%s'.", task.frame_name.c_str());
-      continue;
+    // Use matching feed-forward velocity when available; otherwise accept the pose with zero twist.
+    Vector6d target_velocity = Vector6d::Zero();
+    if (velocity_message &&
+        message->header.stamp.sec == velocity_message->header.stamp.sec &&
+        message->header.stamp.nanosec == velocity_message->header.stamp.nanosec) {
+      if (!params_.base_frame.empty() && !velocity_message->header.frame_id.empty() &&
+          velocity_message->header.frame_id != params_.base_frame) {
+        RCLCPP_WARN_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          "Ignoring velocity target for '%s': frame '%s' is not configured base frame '%s'.",
+          task.frame_name.c_str(), velocity_message->header.frame_id.c_str(),
+          params_.base_frame.c_str());
+      } else {
+        const auto & twist = velocity_message->twist;
+        target_velocity << twist.linear.x, twist.linear.y, twist.linear.z,
+          twist.angular.x, twist.angular.y, twist.angular.z;
+        if (!target_velocity.allFinite()) {
+          RCLCPP_WARN_THROTTLE(
+            get_node()->get_logger(), *get_node()->get_clock(), 1000,
+            "Ignoring invalid velocity target for '%s'.", task.frame_name.c_str());
+          target_velocity.setZero();
+        }
+      }
     }
     orientation.normalize();
     task.target_pose = pinocchio::SE3(orientation.toRotationMatrix(), position);
@@ -642,6 +651,10 @@ void WholeBodyController::computeTaskCommands() {
 
 void WholeBodyController::computePostureReference() {
   const auto message = *joint_target_buffer_.readFromRT();
+
+  // Unspecified positions use the nominal posture and unspecified velocities use zero.
+  q_target_ = nominal_posture_;
+  dq_target_.setZero();
   if (message) {
     // Named commands may be sparse; unnamed commands follow configured joint order.
     if (!message->name.empty()) {
@@ -853,6 +866,28 @@ bool WholeBodyController::expandJointParameter(
     if (!std::isfinite(value) || value < 0.0) {
       RCLCPP_ERROR(
         get_node()->get_logger(), "Parameter '%s' must contain finite non-negative values.",
+        name.c_str());
+      return false;
+    }
+    output[joint_velocity_indices_[parameter_index]] = value;
+  }
+  return true;
+}
+
+bool WholeBodyController::expandJointPositionParameter(
+  const std::vector<double> & input, const std::string & name, Eigen::VectorXd & output) const {
+  if (input.size() != 1U && input.size() != params_.joints.size()) {
+    RCLCPP_ERROR(
+      get_node()->get_logger(), "Parameter '%s' must contain one or %zu values (got %zu).",
+      name.c_str(), params_.joints.size(), input.size());
+    return false;
+  }
+  output = Eigen::VectorXd::Zero(model_.nv);
+  for (std::size_t parameter_index = 0; parameter_index < params_.joints.size(); ++parameter_index) {
+    const double value = input.size() == 1U ? input.front() : input[parameter_index];
+    if (!std::isfinite(value)) {
+      RCLCPP_ERROR(
+        get_node()->get_logger(), "Parameter '%s' must contain finite joint positions.",
         name.c_str());
       return false;
     }

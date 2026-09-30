@@ -115,6 +115,8 @@ private:
   bool expandJointParameter(
     const std::vector<double> & input, const std::string & name, Eigen::VectorXd & output,
     bool allow_empty = false) const;
+  bool expandJointPositionParameter(
+    const std::vector<double> & input, const std::string & name, Eigen::VectorXd & output) const;
   bool expandTaskParameter(
     const std::vector<double> & input, const std::string & name, Eigen::VectorXd & output) const;
 
@@ -136,6 +138,7 @@ private:
   Eigen::VectorXd q_target_;
   Eigen::VectorXd dq_target_;
   Eigen::VectorXd qddot_reference_;
+  Eigen::VectorXd nominal_posture_;
   Eigen::VectorXd posture_kp_;
   Eigen::VectorXd posture_kd_;
   Eigen::VectorXd feedback_kp_;

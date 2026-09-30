@@ -22,7 +22,7 @@ whole_body_controller:
     target_velocity:
       type: string_array
       default_value: ["~/target_velocity/left", "~/target_velocity/right"]
-      description: "Ordered Cartesian TwistStamped target topics for each end effector."
+      description: "Optional ordered TwistStamped topics; an empty list or entry uses zero target velocity."
     target_joint:
       type: string
       default_value: "~/target_joint"
@@ -45,6 +45,10 @@ whole_body_controller:
         fixed_size<>: [6]
 
   posture:
+    nominal:
+      type: double_array
+      default_value: [0.0]
+      description: "Fallback joint positions in configured joint order when no target_joint message exists."
     kp:
       type: double_array
       default_value: [10.0]
