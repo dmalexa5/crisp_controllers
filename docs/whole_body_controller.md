@@ -47,14 +47,21 @@ For a controller named `whole_body_controller`, these settings create:
 /whole_body_controller/target_joint       sensor_msgs/msg/JointState
 ```
 
-`topics.target_pose`, `topics.target_velocity`, and `end_effector_frames` are ordered lists with
-the same length. Each pose and twist pair must have identical timestamps. A target may use an
-empty `header.frame_id`, or it must equal `base_frame` when `base_frame` is configured. The
-controller does not transform targets between frames. The `~/` prefix makes these topics private
-to the controller node; omitting it resolves them in the node namespace instead. Its Cartesian acceleration reference is
+`topics.target_pose` and `end_effector_frames` are ordered lists with the same length.
+`topics.target_velocity` is optional: use an empty list to disable all velocity subscriptions, or
+provide one entry per end effector and leave individual entries empty as needed. A twist is used
+only when its timestamp matches the corresponding pose. If the velocity topic is disabled, no
+twist has arrived, or the latest twist does not match the pose timestamp, the target velocity is
+zero. A target may use an empty `header.frame_id`, or it must equal `base_frame` when
+`base_frame` is configured. The controller does not transform targets between frames. The `~/`
+prefix makes these topics private to the controller node; omitting it resolves them in the node
+namespace instead. Its Cartesian acceleration reference is
 `xddot_d = Kp * pose_error + Kd * (xdot_d - J(q) * qdot)`.
 
-On activation, every Cartesian target and the posture target are initialized to the measured robot state. Consequently, publishing neither target type produces a hold command rather than motion toward a configuration from the YAML file. Named `JointState` posture commands may update a subset of controlled joints; unnamed commands follow the configured `joints` order. The posture command consumes both `JointState.position` and `JointState.velocity`.
+On activation, Cartesian targets hold the measured end-effector poses. The joint target defaults
+to `posture.nominal`, with zero target joint velocity, until a `target_joint` message is available.
+Named `JointState` commands may update a subset of controlled joints; unspecified positions retain
+their nominal values and unspecified velocities remain zero. Unnamed commands follow `joints` order.
 
 ## Dynamics
 
@@ -168,6 +175,23 @@ $$
 \mathbf{K}_{d,\text{fb}}(\dot{\mathbf{q}}_{\text{target}}-\dot{\mathbf{q}}).
 $$
 
+When `feedback.use_acc_integration` is true, the direct-feedback targets are replaced by a
+one-step constant-acceleration prediction from the measured joint state:
+
+$$
+\begin{aligned}
+\ddot{\mathbf{q}}_{\text{target}} &= \mathbf{M}^{-1}\boldsymbol{\tau}_m, \\
+\dot{\mathbf{q}}_{\text{target}} &= \dot{\mathbf{q}} + \ddot{\mathbf{q}}_{\text{target}}\Delta t, \\
+\mathbf{q}_{\text{target}} &= \mathbf{q} + \dot{\mathbf{q}}\Delta t
+  + \tfrac{1}{2}\ddot{\mathbf{q}}_{\text{target}}\Delta t^2.
+\end{aligned}
+$$
+
+The prediction is recomputed from measured state every update rather than accumulated across
+updates. Here $\boldsymbol{\tau}_m$ is motion torque only; nonlinear compensation is excluded.
+The QP posture objective is computed before this prediction and still uses the nominal or received
+joint target. When `use_acc_integration` is false, direct feedback uses that posture target directly.
+
 The raw total is $\boldsymbol{\tau}_{\text{ff}}+\boldsymbol{\tau}_{\text{fb}}$. Torque-rate limiting, output filtering, and the final torque clamp are applied to that sum. These feedback gains are torque gains and are independent of `posture.kp` and `posture.kd`, which create an acceleration reference inside the QP. Direct feedback is not nullspace-projected and can therefore compete with Cartesian tracking.
 
 ## Torque decomposition diagnostics
@@ -195,7 +219,7 @@ whole_body_controller:
 
     topics:
       target_pose: [~/target_pose/tool]
-      target_velocity: [~/target_velocity/tool]
+      target_velocity: []  # Missing Cartesian velocity defaults to zero.
       target_joint: ~/target_joint
 
     task:
@@ -204,11 +228,13 @@ whole_body_controller:
       error_clip: [0.10, 0.10, 0.10, 0.50, 0.50, 0.50]
 
     posture:
+      nominal: [0.0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854]
       kp: [10.0]
       kd: [1.0]
 
     feedback:
       enabled: false
+      use_acc_integration: false
       kp: [0.0]
       kd: [0.0]
 
@@ -256,12 +282,14 @@ whole_body_controller:
 | `end_effector_frames` | nonempty string array | Ordered Pinocchio frames for independent 6D tasks. |
 | `base_frame` | string | Expected pose-message frame; empty disables validation. |
 | `topics.target_pose` | one suffix per end effector | Creates `~/target_pose/<suffix>`. Values must be unique and nonempty. |
-| `topics.target_velocity` | one topic per end effector | Cartesian velocity target paired with each pose target. |
+| `topics.target_velocity` | empty, or one optional topic per end effector | Matching Cartesian velocity targets; missing or mismatched input means zero velocity. |
 | `topics.target_joint` | nonempty suffix | Creates `~/<suffix>` for optional posture commands. |
 | `task.kp`, `task.kd` | 6 values or 6 per task | Cartesian acceleration gains in `[x,y,z,rx,ry,rz]` order. |
 | `task.error_clip` | 6 nonnegative values | Shared absolute Cartesian error limits for every task. |
+| `posture.nominal` | 1 value or one per joint | Fallback joint position when no command supplies that joint; target velocity is zero. |
 | `posture.kp`, `posture.kd` | 1 value or one per joint | Joint-posture acceleration gains. |
 | `feedback.enabled` | boolean | Adds direct joint PD torque to the WBC feed-forward torque. |
+| `feedback.use_acc_integration` | boolean | Uses a one-step prediction from $\mathbf{M}^{-1}\boldsymbol{\tau}_m$ as the direct-feedback target. |
 | `feedback.kp`, `feedback.kd` | 1 value or one per joint | Direct joint torque-feedback gains. |
 | `dynamics.armature` | 1 value or one per joint | Nonnegative diagonal inertia added to $\mathbf{M}$. |
 | `dynamics.joint_damping` | 1 value or one per joint | Nonnegative viscous damping coefficient. |
