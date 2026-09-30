@@ -86,8 +86,8 @@ controller_interface::return_type WholeBodyController::update(
   // Form Cartesian and posture acceleration references, then solve for torque.
   computeTaskCommands();
   computePostureReference();
-  Eigen::VectorXd optimized_torque;
-  if (!solveOptimization(optimized_torque)) {
+  Eigen::VectorXd feedforward_torque;
+  if (!solveOptimization(feedforward_torque)) {
     RCLCPP_ERROR_THROTTLE(
       get_node()->get_logger(), *get_node()->get_clock(), 1000,
       "Operational-space QP failed; holding the previous torque command.");
@@ -98,12 +98,19 @@ controller_interface::return_type WholeBodyController::update(
   // Add optional direct joint feedback to the model-based WBC feed-forward torque.
   feedback_torque_.setZero();
   if (params_.feedback.enabled) {
+    if (params_.feedback.use_acc_integration) {
+      // Constant acceleration integration.
+      const double dt = period.seconds();
+      const Eigen::VectorXd ddq_target = mass_matrix_inverse_ * motion_torque_;
+      dq_target_ = dq_ + ddq_target * dt;
+      q_target_  = q_ + dq_ * dt + 0.5 * ddq_target * dt * dt;
+    }
     feedback_torque_ = feedback_kp_.cwiseProduct(q_target_ - q_) +
       feedback_kd_.cwiseProduct(dq_target_ - dq_);
   }
 
   // Apply output protections to the complete command sent to the hardware.
-  Eigen::VectorXd commanded_torque = optimized_torque + feedback_torque_;
+  Eigen::VectorXd commanded_torque = feedforward_torque + feedback_torque_;
   // Eigen::VectorXd commanded_torque = feedback_torque_;
   if (params_.max_delta_tau > 0.0) {
     commanded_torque = saturateTorqueRate(commanded_torque, previous_torque_, params_.max_delta_tau);

@@ -59,6 +59,10 @@ whole_body_controller:
       type: bool
       default_value: false
       description: "Add direct joint PD feedback torque to the WBC feed-forward torque."
+    use_acc_integration:
+      type: bool
+      default_value: false
+      description: "Form joint feedback targets by forward-Euler integration of M^-1 times motion torque."
     kp:
       type: double_array
       default_value: [0.0]

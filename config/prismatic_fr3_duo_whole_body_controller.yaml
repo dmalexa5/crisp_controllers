@@ -51,6 +51,7 @@ whole_body_controller:
     # Optional direct joint PD torque added after the WBC feed-forward solution.
     feedback:
       enabled: false
+      use_acc_integration: false
       kp: [0.0]
       kd: [0.0]
 
